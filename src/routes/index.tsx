@@ -23,7 +23,7 @@ import {
   VolumeX,
   Zap,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -81,27 +81,34 @@ function SectionTitle({ icon: Icon, title, subtitle, tag }: { icon: React.Elemen
   return <div className="section-title"><div className="section-icon"><Icon size={18} /></div><div className="min-w-0"><p className="section-tag">{tag}</p><h2>{title}</h2><p>{subtitle}</p></div></div>;
 }
 
-type Brand = 'Apple' | 'Samsung' | 'Xiaomi' | 'Motorola' | 'Realme' | 'ASUS';
-type Resolution = 'HD+' | 'FHD+' | 'QHD+';
-
 interface PlayerSetup {
   brand: string;
-  resolution: string;
+  resX: number;
+  resY: number;
   dpi: number;
+  buttonSize: number;
 }
 
 function calculateSensi(setup: PlayerSetup) {
   let baseSensi = 100;
+  
   const brandModifiers: Record<string, number> = {
-    'Apple iPhone 15': 0.85, 'ASUS ROG Phone 8': 0.90, 'Samsung Galaxy S24': 1.0, 'Motorola Edge 50': 1.05, 'Xiaomi Redmi Note 13': 1.10, 'Realme GT 6': 1.15,
+    'Apple iPhone 15': 0.85, 'ASUS ROG Phone 8': 0.90, 'Samsung Galaxy S24': 1.0, 
+    'Motorola Edge 50': 1.05, 'Xiaomi Redmi Note 13': 1.10, 'Realme GT 6': 1.15,
   };
   baseSensi *= brandModifiers[setup.brand] || 1.0;
 
-  if (setup.resolution.includes('QHD+')) baseSensi *= 0.95;
-  if (setup.resolution.includes('HD+')) baseSensi *= 1.08;
+  const totalPixels = setup.resX * setup.resY;
+  if (totalPixels > 3000000) baseSensi *= 0.92;
+  else if (totalPixels < 2000000) baseSensi *= 1.08;
 
   const dpiRatio = 411 / (setup.dpi || 411);
-  const finalGeral = Math.min(200, Math.max(0, Math.round(baseSensi * dpiRatio)));
+  let finalGeral = baseSensi * dpiRatio;
+
+  if (setup.buttonSize < 45) finalGeral *= 1.05;
+  if (setup.buttonSize > 60) finalGeral *= 0.95;
+
+  finalGeral = Math.min(200, Math.max(0, Math.round(finalGeral)));
 
   return {
     geral: finalGeral,
@@ -109,61 +116,99 @@ function calculateSensi(setup: PlayerSetup) {
     scope2x: Math.min(200, Math.round(finalGeral * 0.95)),
     scope4x: Math.min(200, Math.round(finalGeral * 0.88)),
     awm: Math.min(200, Math.round(finalGeral * 0.40)),
-    buttonSize: setup.dpi > 600 ? 45 : 58,
   };
 }
 
-function PullUpSimulator({ onFeedback }: { onFeedback: (msg: string) => void }) {
+function PullUpSimulator({ onFeedback, onComplete, jitterLevel }: { onFeedback: (msg: string) => void, onComplete: (btnSize: number) => void, jitterLevel: number }) {
+  const [attempts, setAttempts] = useState(0);
+  const [speeds, setSpeeds] = useState<number[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
   const [startTime, setStartTime] = useState(0);
+  const [crosshairY, setCrosshairY] = useState(0);
+  const [crosshairX, setCrosshairX] = useState(0);
   const buttonRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (attempts >= 3) return;
     buttonRef.current?.setPointerCapture(e.pointerId);
     setIsDragging(true);
     setStartY(e.clientY);
     setStartTime(Date.now());
-    onFeedback("Puxando a mira... 🔥");
+    onFeedback(`Teste ${attempts + 1}/3: Puxando mira...`);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    const distance = Math.max(0, startY - e.clientY);
+    setCrosshairY(distance * 1.5);
+    const shake = (Math.random() - 0.5) * (jitterLevel / 2);
+    setCrosshairX(shake);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return;
     setIsDragging(false);
+    setCrosshairY(0);
+    setCrosshairX(0);
     buttonRef.current?.releasePointerCapture(e.pointerId);
 
     const distance = startY - e.clientY;
     const timeTaken = Date.now() - startTime;
     
     if (distance < 50) {
-      onFeedback("⚠️ Puxada muito curta/fraca! Aumente o botão.");
+      onFeedback("⚠️ Puxada muito curta. Tente com mais força.");
       return;
     }
 
     const speed = distance / timeTaken;
-    if (speed > 2.5) {
-      onFeedback("⚠ Passou da cabeça! Reduza a Sensi Geral.");
-    } else if (speed < 1.0) {
-      onFeedback("⚠ Grudou no peito! Aumente a DPI.");
+    const newSpeeds = [...speeds, speed];
+    setSpeeds(newSpeeds);
+    setAttempts(a => a + 1);
+
+    if (newSpeeds.length === 3) {
+      const avgSpeed = newSpeeds.reduce((a, b) => a + b, 0) / 3;
+      let idealBtn = 50;
+      if (avgSpeed > 2.0) idealBtn = 62; 
+      else if (avgSpeed < 1.0) idealBtn = 42; 
+      
+      onComplete(idealBtn);
+      onFeedback(`💀 CALIBRADO! Botão ideal: ${idealBtn}%. Ajuste salvo.`);
     } else {
-      onFeedback("💀 CAPA PERFEITO! Puxada idealizada.");
+      if (speed > 2.5) onFeedback(`Passou da cabeça! Faltam ${3 - newSpeeds.length} testes.`);
+      else onFeedback(`Bom capa! Faltam ${3 - newSpeeds.length} testes.`);
     }
   };
 
+  const reset = () => { setAttempts(0); setSpeeds([]); onComplete(50); onFeedback("Reiniciado. Puxe o botão novamente."); };
+
   return (
-    <div className="relative w-full h-64 bg-[#0a0a0c] border border-[#ff5a12]/50 rounded-lg overflow-hidden touch-none mt-4 shadow-[0_0_15px_rgba(255,90,18,0.2)]">
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 w-12 h-12 bg-red-500/20 rounded-full border border-red-500 flex items-center justify-center animate-pulse">
-        🎯
+    <div className="relative w-full h-72 bg-[#0a0a0c] border border-[#ff5a12]/30 rounded-lg overflow-hidden touch-none mt-4 shadow-[0_0_20px_rgba(0,0,0,0.8)]">
+      <div className="absolute top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-red-500/10 rounded-full border border-dashed border-red-500/50 flex items-center justify-center">
+        <span className="text-xs text-red-500 opacity-50">HEAD</span>
       </div>
+      
+      <div 
+        className="absolute bottom-20 left-1/2 -translate-x-1/2 text-[#ff5a12] transition-transform duration-75"
+        style={{ transform: `translate(${crosshairX}px, -${crosshairY}px)` }}
+      >
+        <Crosshair size={32} />
+      </div>
+
       <div 
         ref={buttonRef}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className="absolute bottom-4 left-1/2 -translate-x-1/2 w-14 h-14 bg-[#ff5a12] rounded-full cursor-grab active:cursor-grabbing active:scale-95 transition-transform flex items-center justify-center shadow-[0_0_15px_#ff5a12] select-none touch-none text-white font-bold"
+        className={`absolute bottom-4 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(255,90,18,0.5)] select-none touch-none transition-all ${attempts >= 3 ? 'bg-green-600' : 'bg-[#ff5a12] cursor-grab active:cursor-grabbing active:scale-95'}`}
       >
-        <Target size={20} />
+        {attempts >= 3 ? <ShieldCheck size={24} color="white" /> : <Target size={24} color="white" />}
       </div>
+      
+      {attempts >= 3 && (
+        <Button onClick={reset} variant="outline" className="absolute top-2 right-2 text-xs py-1 px-3 h-auto">Refazer</Button>
+      )}
     </div>
   );
 }
@@ -172,7 +217,14 @@ function Index() {
   const [lang, setLang] = useState<Lang>("pt");
   const [sound, setSound] = useState(true);
   const [device, setDevice] = useState(devices[0] ?? "Xiaomi Redmi Note 13");
-  const [dpi, setDpi] = useState("FHD+ · 411 DPI");
+  
+  // Novos estados integrados
+  const [resX, setResX] = useState(1080);
+  const [resY, setResY] = useState(2400);
+  const [dpiNumber, setDpiNumber] = useState(411);
+  const [calibratedBtn, setCalibratedBtn] = useState(50);
+  const [isApplying, setIsApplying] = useState(false);
+
   const [sensi, setSensi] = useState<Sensitivity>({ geral: 192, red: 188, x2: 176, x4: 164, awm: 92, free: 148 });
   const [scanning, setScanning] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -192,7 +244,7 @@ function Index() {
   const audioRef = useRef<AudioContext | null>(null);
   const t = labels[lang];
 
-  const buttonSize = 43 + hand * 5 + (swipe === 0 ? 3 : swipe === 1 ? 1 : -1);
+  const buttonSize = calibratedBtn !== 50 ? calibratedBtn : 43 + hand * 5 + (swipe === 0 ? 3 : swipe === 1 ? 1 : -1);
   const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
   const recoilTightness = 52 - gyro * .2 - jitter * .16 + friction * .08;
   const targetPositions = [{ left: "20%", top: "62%" }, { left: "70%", top: "24%" }, { left: "55%", top: "68%" }];
@@ -211,18 +263,18 @@ function Index() {
     osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .11);
   };
   const notify = (text: string) => { setToast({ id: Date.now(), text }); window.setTimeout(() => setToast(null), 2400); };
+  
   const generate = () => {
     buzz("generate"); 
     setScanning(true);
-  
-    const dpiMatch = dpi.match(/\d+/);
-    const dpiNumber = dpiMatch ? parseInt(dpiMatch[0]) : 411;
-
+    
     window.setTimeout(() => { 
       const novaSensi = calculateSensi({
         brand: device,
-        resolution: dpi,
-        dpi: dpiNumber
+        resX: resX,
+        resY: resY,
+        dpi: dpiNumber,
+        buttonSize: calibratedBtn
       });
 
       setSensi({ 
@@ -231,11 +283,13 @@ function Index() {
         x2: novaSensi.scope2x, 
         x4: novaSensi.scope4x, 
         awm: novaSensi.awm, 
-        free: Math.round(novaSensi.geral * 0.8) 
+        free: Math.round(novaSensi.geral * 0.75) 
       }); 
       setScanning(false); 
-    }, 650);
+      notify("Matriz atualizada com seus dados exatos!");
+    }, 800);
   };
+
   const copyValues = async () => {
     const text = `${t.general}: ${sensi.geral}\n${t.redDot}: ${sensi.red}\n2x: ${sensi.x2}\n4x: ${sensi.x4}\nAWM: ${sensi.awm}\n${t.peek}: ${sensi.free}`;
     await navigator.clipboard.writeText(text); buzz(); notify(t.copied);
@@ -247,7 +301,7 @@ function Index() {
   };
   const downloadProfile = () => {
     buzz("generate");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#0a0a0c"/><path d="M0 580L1200 250" stroke="#192126"/><text x="70" y="100" fill="#ff5a12" font-family="Arial" font-weight="700" font-size="32">SENSIX PRO // CONFIG PROFILE</text><text x="70" y="155" fill="#9aa4aa" font-family="Arial" font-size="20">${device} · ${dpi} · ${os}</text><text x="70" y="250" fill="#f5f7f8" font-family="Arial" font-size="30">GERAL ${sensi.geral}   RED DOT ${sensi.red}   2X ${sensi.x2}</text><text x="70" y="310" fill="#f5f7f8" font-family="Arial" font-size="30">4X ${sensi.x4}   AWM ${sensi.awm}   FREE LOOK ${sensi.free}</text><text x="70" y="410" fill="#38d9e6" font-family="Arial" font-size="26">FIRE BUTTON ${buttonSize}%   ·   POINTER ${pointer}/10   ·   ${convertDpi} DPI</text><rect x="70" y="535" width="270" height="5" fill="#ff5a12"/><text x="70" y="590" fill="#707b82" font-family="Arial" font-size="18">ANTI-LAG MATRIX // VERIFIED PROFILE</text></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#0a0a0c"/><path d="M0 580L1200 250" stroke="#192126"/><text x="70" y="100" fill="#ff5a12" font-family="Arial" font-weight="700" font-size="32">SENSIX PRO // CONFIG PROFILE</text><text x="70" y="155" fill="#9aa4aa" font-family="Arial" font-size="20">${device} · ${resX}x${resY} · ${dpiNumber} DPI · ${os}</text><text x="70" y="250" fill="#f5f7f8" font-family="Arial" font-size="30">GERAL ${sensi.geral}   RED DOT ${sensi.red}   2X ${sensi.x2}</text><text x="70" y="310" fill="#f5f7f8" font-family="Arial" font-size="30">4X ${sensi.x4}   AWM ${sensi.awm}   FREE LOOK ${sensi.free}</text><text x="70" y="410" fill="#38d9e6" font-family="Arial" font-size="26">FIRE BUTTON ${buttonSize}%   ·   POINTER ${pointer}/10   ·   ${convertDpi} DPI</text><rect x="70" y="535" width="270" height="5" fill="#ff5a12"/><text x="70" y="590" fill="#707b82" font-family="Arial" font-size="18">ANTI-LAG MATRIX // VERIFIED PROFILE</text></svg>`;
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })); const a = document.createElement("a"); a.href = url; a.download = "sensix-pro-profile.svg"; a.click(); URL.revokeObjectURL(url); notify(t.configReady);
   };
 
@@ -277,7 +331,30 @@ function Index() {
 
       <section id="sensitivity" className="panel sensitivity-panel">
         <SectionTitle icon={Crosshair} tag="01 // CORE" title={t.sensi} subtitle={t.sensiSub} />
-        <div className="control-row"><label>{t.device}<select value={device} onChange={(e) => setDevice(e.target.value)}>{devices.map((d) => <option key={d}>{d}</option>)}</select></label><label>{t.resolution}<select value={dpi} onChange={(e) => setDpi(e.target.value)}><option>HD+ · 360 DPI</option><option>FHD+ · 411 DPI</option><option>QHD+ · 600 DPI</option><option>Custom · 800 DPI</option></select></label></div>
+        
+        {/* NOVOS INPUTS MANUAIS */}
+        <div className="grid grid-cols-2 gap-4 mb-6" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem'}}>
+          <label style={{gridColumn: 'span 2', display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>{t.device}
+            <select style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#fff'}} value={device} onChange={(e) => setDevice(e.target.value)}>
+              {devices.map((d) => <option key={d}>{d}</option>)}
+            </select>
+          </label>
+          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>Resolução (X e Y)
+            <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.25rem'}}>
+              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#fff'}} value={resX} onChange={e => setResX(Number(e.target.value))} />
+              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#fff'}} value={resY} onChange={e => setResY(Number(e.target.value))} />
+            </div>
+          </label>
+          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>DPI Exata
+            <input type="number" style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#38d9e6', fontWeight: 'bold'}} value={dpiNumber} onChange={e => setDpiNumber(Number(e.target.value))} />
+          </label>
+          
+          <div style={{gridColumn: 'span 2', backgroundColor: 'rgba(17,21,24,0.5)', padding: '0.75rem', borderRadius: '4px', border: '1px solid rgba(56,217,230,0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <span style={{fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase'}}>Botão de Tiro Motor:</span>
+            <span style={{color: '#38d9e6', fontFamily: 'monospace', fontWeight: 'bold'}}>{calibratedBtn}%</span>
+          </div>
+        </div>
+
         <div className={`sensi-output ${scanning ? "is-scanning" : ""}`}><div className="scan-line" />{sensiItems.map(([name, value], i) => <div className="sensi-stat" key={name} style={{ animationDelay: `${i * 45}ms` }}><span>{String(i + 1).padStart(2, "0")} // {name}</span><strong>{value}</strong><div><i style={{ width: `${value / 2}%` }} /></div></div>)}</div>
         <div className="panel-actions"><Button onClick={generate} disabled={scanning}><RefreshCw className={scanning ? "spin" : ""} size={17} />{t.newCombo}</Button><Button variant="outline" onClick={copyValues}><Copy size={17} />{t.copy}</Button></div>
       </section>
@@ -287,11 +364,12 @@ function Index() {
           <SectionTitle icon={LocateFixed} tag="02 // HUD" title={t.fire} subtitle={t.fireSub} />
           <div className="seg-group"><span>{t.hand}</span><div>{[t.small, t.medium, t.large].map((x, i) => <button className={hand === i ? "active" : ""} onClick={() => { setHand(i); buzz(); }} key={x}>{x}</button>)}</div></div>
           <div className="seg-group"><span>{t.swipe}</span><div>{[t.fast, t.curved, t.straight].map((x, i) => <button className={swipe === i ? "active" : ""} onClick={() => { setSwipe(i); buzz(); }} key={x}>{x}</button>)}</div></div>
-         <div className="fire-result"><div className="phone-hud"><div className="drag-path" /><span className="fire-button" style={{ width: `${buttonSize * .85}px`, height: `${buttonSize * .85}px` }}><Target /></span><small>{t.zone}</small></div><div className="size-readout"><small>{t.recommended}</small><strong>{buttonSize}<sup>%</sup></strong><span><ShieldCheck size={15} /> {t.fireReady}</span></div></div>
-          <div className="mt-8 border-t border-slate-800 pt-6">
-  <h3 className="text-orange-400 font-bold mb-2 uppercase text-sm tracking-widest"><Crosshair size={14} className="inline mr-2"/> Teste Prático de Puxada</h3>
-  <PullUpSimulator onFeedback={notify} />
-</div>
+          <div className="fire-result"><div className="phone-hud"><div className="drag-path" /><span className="fire-button" style={{ width: `${buttonSize * .85}px`, height: `${buttonSize * .85}px` }}><Target /></span><small>{t.zone}</small></div><div className="size-readout"><small>{t.recommended}</small><strong>{buttonSize}<sup>%</sup></strong><span><ShieldCheck size={15} /> {t.fireReady}</span></div></div>
+          
+          <div style={{marginTop: '2rem', borderTop: '1px solid #232c32', paddingTop: '1.5rem'}}>
+            <h3 style={{color: '#ff5a12', fontWeight: 'bold', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.875rem', letterSpacing: '0.1em'}}><Crosshair size={14} style={{display: 'inline', marginRight: '0.5rem'}}/> Teste Prático de Puxada</h3>
+            <PullUpSimulator onFeedback={notify} onComplete={setCalibratedBtn} jitterLevel={jitter} />
+          </div>
         </section>
 
         <section id="calibration" className="panel">
@@ -317,6 +395,26 @@ function Index() {
         <div className="os-toggle"><button className={os === "Android" ? "active" : ""} onClick={() => setOs("Android")}>ANDROID</button><button className={os === "iOS" ? "active" : ""} onClick={() => setOs("iOS")}>iOS</button></div>
         <div className="tuner-grid"><label><span>{t.pointer}<output>{pointer}/10</output></span><input type="range" min="1" max="10" value={pointer} onChange={(e) => setPointer(Number(e.target.value))} /></label><label><span>{t.delay}<output>{delay}ms</output></span><input type="range" min="80" max="500" step="10" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label><span>{t.converter}<output>{convertDpi}</output></span><input type="range" min="300" max="800" step="1" value={convertDpi} onChange={(e) => setConvertDpi(Number(e.target.value))} /></label></div>
         <div className="recommendation"><Sparkles size={18} /><div><b>{t.optimal}</b><span>{os === "Android" ? `DPI ${Math.max(360, convertDpi - 20)}–${convertDpi + 30} · Pointer ${pointer}` : `Touch ${Math.max(100, delay - 40)}–${delay}ms · 120Hz`}</span></div></div>
+        
+        {/* BOTÃO ANIMADO DE APLICAR AJUSTES */}
+        <div style={{marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #232c32'}}>
+          <Button 
+            className="w-full" 
+            style={{backgroundColor: isApplying ? '#232c32' : '#0891b2', transition: 'all 0.3s ease'}}
+            onClick={() => {
+              setIsApplying(true);
+              buzz("generate");
+              setTimeout(() => { setIsApplying(false); notify("Ajustes de Kernel e Ponteiro injetados com sucesso!"); }, 2500);
+            }}
+            disabled={isApplying}
+          >
+            {isApplying ? (
+              <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}><RefreshCw className="spin" size={16}/> Sincronizando Matriz de Toque...</span>
+            ) : (
+              <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}><Zap size={16}/> Aplicar Ajustes Finos</span>
+            )}
+          </Button>
+        </div>
       </section>
 
       <section className="panel tips-panel">
@@ -325,7 +423,7 @@ function Index() {
         <div className="tip-content"><div className="tip-number">0{tip + 1}</div><div><small>PROTOCOL_{["DRAG", "SURFACE", "RENDER"][tip] ?? "DRAG"}</small><p>{[t.tip1, t.tip2, t.tip3][tip] ?? t.tip1}</p></div><Target size={25} /></div>
       </section>
 
-      <section className="export-band"><div><p>CONFIGURATION // READY</p><h2>{device}</h2><span>{dpi} · {buttonSize}% FIRE · {os}</span></div><Button onClick={downloadProfile}><Download size={18} />{t.profile}</Button></section>
+      <section className="export-band"><div><p>CONFIGURATION // READY</p><h2>{device}</h2><span>{resX}x{resY} · {buttonSize}% FIRE · {os}</span></div><Button onClick={downloadProfile}><Download size={18} />{t.profile}</Button></section>
       <footer><div className="brand-mini"><Crosshair size={18} /> SENSIX PRO</div><p>INDEPENDENT COMPETITIVE CALIBRATION TOOL</p><span>BUILD 4.8.2 // ONLINE</span></footer>
     </div>
     {toast && <div className="toast" key={toast.id}><ShieldCheck size={18} />{toast.text}</div>}
