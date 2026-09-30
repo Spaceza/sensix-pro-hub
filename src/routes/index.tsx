@@ -81,6 +81,93 @@ function SectionTitle({ icon: Icon, title, subtitle, tag }: { icon: React.Elemen
   return <div className="section-title"><div className="section-icon"><Icon size={18} /></div><div className="min-w-0"><p className="section-tag">{tag}</p><h2>{title}</h2><p>{subtitle}</p></div></div>;
 }
 
+type Brand = 'Apple' | 'Samsung' | 'Xiaomi' | 'Motorola' | 'Realme' | 'ASUS';
+type Resolution = 'HD+' | 'FHD+' | 'QHD+';
+
+interface PlayerSetup {
+  brand: string;
+  resolution: string;
+  dpi: number;
+}
+
+function calculateSensi(setup: PlayerSetup) {
+  let baseSensi = 100;
+  const brandModifiers: Record<string, number> = {
+    'Apple iPhone 15': 0.85, 'ASUS ROG Phone 8': 0.90, 'Samsung Galaxy S24': 1.0, 'Motorola Edge 50': 1.05, 'Xiaomi Redmi Note 13': 1.10, 'Realme GT 6': 1.15,
+  };
+  baseSensi *= brandModifiers[setup.brand] || 1.0;
+
+  if (setup.resolution.includes('QHD+')) baseSensi *= 0.95;
+  if (setup.resolution.includes('HD+')) baseSensi *= 1.08;
+
+  const dpiRatio = 411 / (setup.dpi || 411);
+  const finalGeral = Math.min(200, Math.max(0, Math.round(baseSensi * dpiRatio)));
+
+  return {
+    geral: finalGeral,
+    redDot: Math.min(200, Math.round(finalGeral * 1.05)),
+    scope2x: Math.min(200, Math.round(finalGeral * 0.95)),
+    scope4x: Math.min(200, Math.round(finalGeral * 0.88)),
+    awm: Math.min(200, Math.round(finalGeral * 0.40)),
+    buttonSize: setup.dpi > 600 ? 45 : 58,
+  };
+}
+
+function PullUpSimulator({ onFeedback }: { onFeedback: (msg: string) => void }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [startY, setStartY] = useState(0);
+  const [startTime, setStartTime] = useState(0);
+  const buttonRef = useRef<HTMLDivElement>(null);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    buttonRef.current?.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+    setStartY(e.clientY);
+    setStartTime(Date.now());
+    onFeedback("Puxando a mira... 🔥");
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    buttonRef.current?.releasePointerCapture(e.pointerId);
+
+    const distance = startY - e.clientY;
+    const timeTaken = Date.now() - startTime;
+    
+    if (distance < 50) {
+      onFeedback("⚠️ Puxada muito curta/fraca! Aumente o botão.");
+      return;
+    }
+
+    const speed = distance / timeTaken;
+    if (speed > 2.5) {
+      onFeedback("⚠ Passou da cabeça! Reduza a Sensi Geral.");
+    } else if (speed < 1.0) {
+      onFeedback("⚠ Grudou no peito! Aumente a DPI.");
+    } else {
+      onFeedback("💀 CAPA PERFEITO! Puxada idealizada.");
+    }
+  };
+
+  return (
+    <div className="relative w-full h-64 bg-[#0a0a0c] border border-[#ff5a12]/50 rounded-lg overflow-hidden touch-none mt-4 shadow-[0_0_15px_rgba(255,90,18,0.2)]">
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 w-12 h-12 bg-red-500/20 rounded-full border border-red-500 flex items-center justify-center animate-pulse">
+        🎯
+      </div>
+      <div 
+        ref={buttonRef}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 w-14 h-14 bg-[#ff5a12] rounded-full cursor-grab active:cursor-grabbing active:scale-95 transition-transform flex items-center justify-center shadow-[0_0_15px_#ff5a12] select-none touch-none text-white font-bold"
+      >
+        <Target size={20} />
+      </div>
+    </div>
+  );
+}
+
 function Index() {
   const [lang, setLang] = useState<Lang>("pt");
   const [sound, setSound] = useState(true);
