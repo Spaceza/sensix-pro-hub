@@ -84,7 +84,7 @@ function SectionTitle({ icon: Icon, title, subtitle, tag }: { icon: React.Elemen
 function Index() {
   const [lang, setLang] = useState<Lang>("pt");
   const [sound, setSound] = useState(true);
-  const [device, setDevice] = useState(devices[0]);
+  const [device, setDevice] = useState(devices[0] ?? "Xiaomi Redmi Note 13");
   const [dpi, setDpi] = useState("FHD+ · 411 DPI");
   const [sensi, setSensi] = useState<Sensitivity>({ geral: 192, red: 188, x2: 176, x4: 164, awm: 92, free: 148 });
   const [scanning, setScanning] = useState(false);
