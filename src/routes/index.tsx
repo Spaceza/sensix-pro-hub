@@ -44,7 +44,7 @@ type Sensitivity = { geral: number; red: number; x2: number; x4: number; awm: nu
 type Toast = { id: number; text: string } | null;
 
 const devices = ["Xiaomi Redmi Note 13", "Samsung Galaxy S24", "Apple iPhone 15", "Motorola Edge 50", "Realme GT 6", "ASUS ROG Phone 8"];
-const labels: Record<Lang, Record<string, string>> = {
+const labels = {
   pt: {
     online: "SISTEMA OPERACIONAL", tagline: "PRECISÃO SEM LIMITES", intro: "Seu centro de calibração competitiva para domínio total de mira, arraste e resposta.",
     generate: "GERAR CONFIGURAÇÃO", calibrate: "CALIBRAR TOQUE", profile: "BAIXAR PERFIL", sensi: "GERADOR DE SENSIBILIDADE", sensiSub: "Matriz adaptativa 0—200",
@@ -71,7 +71,7 @@ const labels: Record<Lang, Record<string, string>> = {
     tip1: "Start the drag before firing and finish inside the cyan target zone.", tip2: "Keep the screen dry; a consistent sleeve reduces friction variance.", tip3: "Use high FPS and disable shadows to prioritize visibility and response.",
     fireReady: "Button calibrated", precision: "Estimated precision", response: "Touch response", status: "ANTI-LAG READY", general: "General", redDot: "Red Dot", peek: "Free Look",
   },
-};
+} as const;
 
 function Button({ children, variant = "primary", className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "outline" | "ghost" }) {
   return <button className={`ui-button ui-button-${variant} ${className}`} {...props}>{children}</button>;
@@ -188,7 +188,7 @@ function Index() {
           <SectionTitle icon={Radar} tag="03 // TOUCH" title={t.touch} subtitle={t.touchSub} />
           <div className="calibration-field">
             <div className="field-grid" />
-            {calStep > 0 && calStep < 4 && <button className="target-node" style={targetPositions[calStep - 1]} onClick={hitTarget} aria-label={t.tap}><span>{calStep}</span></button>}
+            {calStep > 0 && calStep < 4 && <button className="target-node" style={targetPositions[calStep - 1] ?? targetPositions[0]} onClick={hitTarget} aria-label={t.tap}><span>{calStep}</span></button>}
             {calStep === 0 && <div className="cal-empty"><MousePointer2 size={28} /><span>READY_</span></div>}
             {calStep === 4 && <div className="cal-complete"><ShieldCheck size={34} /><strong>{t.done}</strong><span>{t.latency}: {avgLatency}ms</span></div>}
             {calStep > 0 && calStep < 4 && <p className="target-instruction">{t.tap} // 0{calStep}/03</p>}
@@ -212,7 +212,7 @@ function Index() {
       <section className="panel tips-panel">
         <SectionTitle icon={BellRing} tag="06 // INTEL" title={t.tips} subtitle="TACTICAL DATABASE" />
         <div className="tip-tabs">{[t.tricks, t.physics, t.graphics].map((x, i) => <button className={tip === i ? "active" : ""} onClick={() => setTip(i)} key={x}>{String(i + 1).padStart(2, "0")} {x}</button>)}</div>
-        <div className="tip-content"><div className="tip-number">0{tip + 1}</div><div><small>PROTOCOL_{["DRAG", "SURFACE", "RENDER"][tip]}</small><p>{[t.tip1, t.tip2, t.tip3][tip]}</p></div><Target size={25} /></div>
+        <div className="tip-content"><div className="tip-number">0{tip + 1}</div><div><small>PROTOCOL_{["DRAG", "SURFACE", "RENDER"][tip] ?? "DRAG"}</small><p>{[t.tip1, t.tip2, t.tip3][tip] ?? t.tip1}</p></div><Target size={25} /></div>
       </section>
 
       <section className="export-band"><div><p>CONFIGURATION // READY</p><h2>{device}</h2><span>{dpi} · {buttonSize}% FIRE · {os}</span></div><Button onClick={downloadProfile}><Download size={18} />{t.profile}</Button></section>
