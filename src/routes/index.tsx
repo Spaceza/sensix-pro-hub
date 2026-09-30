@@ -212,10 +212,29 @@ function Index() {
   };
   const notify = (text: string) => { setToast({ id: Date.now(), text }); window.setTimeout(() => setToast(null), 2400); };
   const generate = () => {
-    buzz("generate"); setScanning(true);
-    const seed = device.length + dpi.length + Date.now();
-    const value = (base: number, spread: number) => Math.min(200, Math.max(0, base + ((seed * spread) % 19) - 9));
-    window.setTimeout(() => { setSensi({ geral: value(190, 3), red: value(186, 5), x2: value(174, 7), x4: value(162, 11), awm: value(94, 13), free: value(150, 17) }); setScanning(false); }, 650);
+    buzz("generate"); 
+    setScanning(true);
+  
+    const dpiMatch = dpi.match(/\d+/);
+    const dpiNumber = dpiMatch ? parseInt(dpiMatch[0]) : 411;
+
+    window.setTimeout(() => { 
+      const novaSensi = calculateSensi({
+        brand: device,
+        resolution: dpi,
+        dpi: dpiNumber
+      });
+
+      setSensi({ 
+        geral: novaSensi.geral, 
+        red: novaSensi.redDot, 
+        x2: novaSensi.scope2x, 
+        x4: novaSensi.scope4x, 
+        awm: novaSensi.awm, 
+        free: Math.round(novaSensi.geral * 0.8) 
+      }); 
+      setScanning(false); 
+    }, 650);
   };
   const copyValues = async () => {
     const text = `${t.general}: ${sensi.geral}\n${t.redDot}: ${sensi.red}\n2x: ${sensi.x2}\n4x: ${sensi.x4}\nAWM: ${sensi.awm}\n${t.peek}: ${sensi.free}`;
@@ -268,7 +287,11 @@ function Index() {
           <SectionTitle icon={LocateFixed} tag="02 // HUD" title={t.fire} subtitle={t.fireSub} />
           <div className="seg-group"><span>{t.hand}</span><div>{[t.small, t.medium, t.large].map((x, i) => <button className={hand === i ? "active" : ""} onClick={() => { setHand(i); buzz(); }} key={x}>{x}</button>)}</div></div>
           <div className="seg-group"><span>{t.swipe}</span><div>{[t.fast, t.curved, t.straight].map((x, i) => <button className={swipe === i ? "active" : ""} onClick={() => { setSwipe(i); buzz(); }} key={x}>{x}</button>)}</div></div>
-          <div className="fire-result"><div className="phone-hud"><div className="drag-path" /><span className="fire-button" style={{ width: `${buttonSize * .85}px`, height: `${buttonSize * .85}px` }}><Target /></span><small>{t.zone}</small></div><div className="size-readout"><small>{t.recommended}</small><strong>{buttonSize}<sup>%</sup></strong><span><ShieldCheck size={15} /> {t.fireReady}</span></div></div>
+         <div className="fire-result"><div className="phone-hud"><div className="drag-path" /><span className="fire-button" style={{ width: `${buttonSize * .85}px`, height: `${buttonSize * .85}px` }}><Target /></span><small>{t.zone}</small></div><div className="size-readout"><small>{t.recommended}</small><strong>{buttonSize}<sup>%</sup></strong><span><ShieldCheck size={15} /> {t.fireReady}</span></div></div>
+          <div className="mt-8 border-t border-slate-800 pt-6">
+  <h3 className="text-orange-400 font-bold mb-2 uppercase text-sm tracking-widest"><Crosshair size={14} className="inline mr-2"/> Teste Prático de Puxada</h3>
+  <PullUpSimulator onFeedback={notify} />
+</div>
         </section>
 
         <section id="calibration" className="panel">
