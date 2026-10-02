@@ -1,152 +1,154 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Activity,
-  BellRing,
-  ChevronRight,
-  Copy,
-  Crosshair,
-  Download,
-  Gauge,
-  Hand,
-  Languages,
-  LocateFixed,
-  MousePointer2,
-  Radar,
-  RefreshCw,
-  ScanLine,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
-  Target,
-  Volume2,
-  VolumeX,
-  Zap,
-  BarChart3,
-  Crosshair as CrosshairIcon
+  Activity, BellRing, ChevronRight, Copy, Crosshair, Download,
+  Gauge, Hand, Languages, LocateFixed, MousePointer2, Radar,
+  RefreshCw, ScanLine, ShieldCheck, SlidersHorizontal, Sparkles,
+  Target, Volume2, VolumeX, Zap, BarChart3, Fingerprint, BrainCircuit
 } from "lucide-react";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SensiX Pro — Gerador de Sensibilidade Free Fire" },
-      { name: "description", content: "Calibre sensibilidade, botão de tiro, toque, mira e DPI para seu dispositivo." },
-      { property: "og:title", content: "SensiX Pro — Configuração competitiva Free Fire" },
+      { title: "SensiX Pro — Laboratório de Performance Free Fire" },
+      { name: "description", content: "Calibração de reflexos, arraste e física de mira." },
     ],
   }),
   component: Index,
 });
 
-type Lang = "pt" | "en";
-type Sensitivity = { geral: number; red: number; x2: number; x4: number; awm: number; free: number };
-type Toast = { id: number; text: string } | null;
+const devices = ["Xiaomi / POCO", "Samsung Galaxy", "Apple iPhone", "Motorola Edge", "Realme", "ASUS ROG"];
 
-const devices = ["Xiaomi", "Samsung", "Apple", "Motorola", "Realme", "ASUS"];
-
-const labels = {
-  pt: {
-    online: "SISTEMA OPERACIONAL", tagline: "PRECISÃO SEM LIMITES", intro: "Seu centro de calibração competitiva para domínio total de mira, arraste e resposta.",
-    generate: "GERAR CONFIGURAÇÃO", calibrate: "CALIBRAR TOQUE", profile: "BAIXAR PERFIL", sensi: "GERADOR DE SENSIBILIDADE", sensiSub: "Matriz adaptativa 0—200",
-    device: "Marca do Aparelho", resolution: "Resolução / DPI", newCombo: "NOVA COMBINAÇÃO", copy: "COPIAR VALORES", copied: "Valores copiados para a área de transferência",
-    fire: "BOTÃO DE TIRO", fireSub: "Geometria de arraste", hand: "Tamanho da mão", swipe: "Estilo de puxada", small: "Pequena", medium: "Média", large: "Grande",
-    fast: "Arraste rápido", curved: "Arraste curvo", straight: "Arraste reto", recommended: "Tamanho recomendado", zone: "ZONA DE ARRASTE IDEAL",
-    touch: "CALIBRAÇÃO DE TOQUE", touchSub: "Teste de resposta em 3 pontos", begin: "INICIAR CALIBRAÇÃO", tap: "TOQUE NO ALVO", done: "MATRIZ OTIMIZADA", latency: "Latência média",
-    stability: "ESTABILIZAÇÃO DE MIRA", stabilitySub: "Simulação de padrão de recuo", gyro: "Compensação giroscópica", friction: "Atrito de tela", jitter: "Filtro de tremor",
-    system: "AJUSTE FINO DO SISTEMA", systemSub: "Sincronização de ponteiro e DPI", pointer: "Velocidade do ponteiro", delay: "Atraso de toque", converter: "Conversor DPI", ios: "iOS", android: "Android", optimal: "Faixa ideal detectada",
-    tips: "BIBLIOTECA PRO", tricks: "Trick shots", physics: "Física da tela", graphics: "Gráficos", soundOn: "Som ligado", soundOff: "Som desligado", configReady: "Perfil visual baixado",
-    tip1: "Comece o arraste antes do disparo e finalize no centro da zona ciano.", tip2: "Mantenha a tela seca; uma dedeira uniforme reduz variações de atrito.", tip3: "Use FPS alto e sombras desligadas para priorizar leitura e resposta.",
-    fireReady: "Botão calibrado", precision: "Precisão estimada", response: "Resposta de toque", status: "ANTI-LAG PRONTO", general: "Geral", redDot: "Ponto Vermelho", peek: "Olhadinha",
-  },
-  en: {
-    online: "SYSTEM OPERATIONAL", tagline: "PRECISION WITHOUT LIMITS", intro: "Your competitive calibration center for total aim, drag and response control.",
-    generate: "GENERATE CONFIG", calibrate: "CALIBRATE TOUCH", profile: "DOWNLOAD PROFILE", sensi: "SENSITIVITY GENERATOR", sensiSub: "Adaptive 0—200 matrix",
-    device: "Device Brand", resolution: "Resolution / DPI", newCombo: "NEW COMBINATION", copy: "COPY VALUES", copied: "Values copied to clipboard",
-    fire: "FIRE BUTTON", fireSub: "Drag geometry", hand: "Hand size", swipe: "Swipe style", small: "Small", medium: "Medium", large: "Large",
-    fast: "Fast drag", curved: "Curved drag", straight: "Straight drag", recommended: "Recommended size", zone: "OPTIMAL DRAG ZONE",
-    touch: "TOUCH CALIBRATION", touchSub: "3-point response test", begin: "START CALIBRATION", tap: "TAP THE TARGET", done: "MATRIX OPTIMIZED", latency: "Average latency",
-    stability: "AIM STABILIZATION", stabilitySub: "Recoil pattern simulator", gyro: "Gyroscope compensation", friction: "Screen friction", jitter: "Jitter removal",
-    system: "SYSTEM FINE-TUNER", systemSub: "Pointer and DPI sync", pointer: "Pointer speed", delay: "Touch & hold delay", converter: "DPI converter", ios: "iOS", android: "Android", optimal: "Optimal range detected",
-    tips: "PRO LIBRARY", tricks: "Trick shots", physics: "Screen physics", graphics: "Graphics", soundOn: "Sound on", soundOff: "Sound off", configReady: "Visual profile downloaded",
-    tip1: "Start the drag before firing and finish inside the cyan target zone.", tip2: "Keep the screen dry; a consistent sleeve reduces friction variance.", tip3: "Use high FPS and disable shadows to prioritize visibility and response.",
-    fireReady: "Button calibrated", precision: "Estimated precision", response: "Touch response", status: "ANTI-LAG READY", general: "General", redDot: "Red Dot", peek: "Free Look",
-  },
-} as const;
-
-function Button({ children, variant = "primary", className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "outline" | "ghost" }) {
-  return <button className={`ui-button ui-button-${variant} ${className}`} {...props}>{children}</button>;
-}
-
-function SectionTitle({ icon: Icon, title, subtitle, tag }: { icon: React.ElementType; title: string; subtitle: string; tag: string }) {
-  return <div className="section-title"><div className="section-icon"><Icon size={18} /></div><div className="min-w-0"><p className="section-tag">{tag}</p><h2>{title}</h2><p>{subtitle}</p></div></div>;
-}
-
-// --- MOTOR MATEMÁTICO INTEGRADO ---
+// --- MOTOR MATEMÁTICO INTEGRADO (V2.0) ---
 interface PlayerSetup {
   brand: string;
   resX: number;
   resY: number;
   dpi: number;
   dragCoefficient: number;
-  baseButtonSize: number;
+  reactionMs: number;
+  usesSleeve: boolean;
 }
 
 function calculateSensi(setup: PlayerSetup) {
   let baseSensi = 100;
   
   const brandModifiers: Record<string, number> = {
-    'Apple': 0.85, 'ASUS': 0.90, 'Samsung': 1.0, 
-    'Motorola': 1.05, 'Xiaomi': 1.10, 'Realme': 1.15,
+    'Apple iPhone': 0.82, 'ASUS ROG': 0.88, 'Samsung Galaxy': 1.0, 
+    'Motorola Edge': 1.05, 'Xiaomi / POCO': 1.12, 'Realme': 1.15,
   };
   baseSensi *= brandModifiers[setup.brand] || 1.0;
 
+  // Ajuste por densidade e Dedeira (Dedeira deixa liso, exige menos sensi pra não pinar)
   const totalPixels = setup.resX * setup.resY;
-  if (totalPixels > 3000000) baseSensi *= 0.92;
-  else if (totalPixels < 2000000) baseSensi *= 1.08;
+  if (totalPixels > 3000000) baseSensi *= 0.90;
+  if (setup.usesSleeve) baseSensi *= 0.88;
 
   const dpiRatio = 411 / (setup.dpi || 411);
   let finalGeral = baseSensi * dpiRatio;
 
-  finalGeral *= setup.dragCoefficient;
-  finalGeral = Math.min(200, Math.max(0, Math.round(finalGeral)));
+  // Impacto do Reflexo (Reaction Time) e Arraste
+  // Reflexo rápido (< 250ms) = Consegue domar sensi alta. Reflexo lento = Sensi menor pra focar precisão.
+  const reflexBonus = setup.reactionMs < 250 ? 1.15 : (setup.reactionMs > 350 ? 0.90 : 1.0);
+  
+  finalGeral *= setup.dragCoefficient * reflexBonus;
+
+  // Definição de Arquétipo
+  let archetype = "VERSÁTIL";
+  if (setup.reactionMs < 260 && setup.dragCoefficient < 0.95) archetype = "RUSHADOR FRENÉTICO";
+  else if (setup.reactionMs > 320 && setup.dragCoefficient > 1.05) archetype = "SNIPER / SUPORTE";
+  else if (setup.usesSleeve && setup.dragCoefficient < 1.0) archetype = "FRAGGER MECÂNICO";
+
+  let idealBtn = 50;
+  if (setup.dragCoefficient < 0.9) idealBtn = 64; 
+  else if (setup.dragCoefficient > 1.1) idealBtn = 40; 
+  else idealBtn = 52; 
 
   return {
-    geral: finalGeral,
-    redDot: Math.min(200, Math.round(finalGeral * 1.05)),
-    scope2x: Math.min(200, Math.round(finalGeral * 0.95)),
-    scope4x: Math.min(200, Math.round(finalGeral * 0.88)),
-    awm: Math.min(200, Math.round(finalGeral * 0.40)),
+    geral: Math.min(200, Math.max(0, Math.round(finalGeral))),
+    redDot: Math.min(200, Math.round(finalGeral * 1.08)), // Um pouco mais solta no novo meta
+    scope2x: Math.min(200, Math.round(finalGeral * (archetype.includes("RUSH") ? 0.90 : 0.98))),
+    scope4x: Math.min(200, Math.round(finalGeral * (archetype.includes("SNIPER") ? 0.95 : 0.85))),
+    awm: Math.min(200, Math.round(finalGeral * 0.45)),
+    buttonSize: idealBtn,
+    archetype
   };
 }
 
-// --- SIMULADOR FÍSICO COM AIM ASSIST E ANALYTICS ---
-function PullUpSimulator({ onComplete }: { onComplete: (coeff: number, btn: number) => void }) {
+// --- MINIGAME 1: TESTE DE REFLEXO NEURAL (NOVO) ---
+function ReflexTest({ onComplete, buzz }: { onComplete: (ms: number) => void, buzz: (t: string) => void }) {
+  const [state, setState] = useState<"idle" | "waiting" | "ready" | "done">("idle");
+  const [startTime, setStartTime] = useState(0);
+  const [result, setResult] = useState(0);
+  const timeoutRef = useRef<number | null>(null);
+
+  const startTest = () => {
+    buzz("tap");
+    setState("waiting");
+    const delay = 1500 + Math.random() * 3000; // Tempo aleatório
+    timeoutRef.current = window.setTimeout(() => {
+      setState("ready");
+      setStartTime(Date.now());
+      buzz("generate"); // Som agudo pra atirar
+    }, delay);
+  };
+
+  const handleTap = () => {
+    if (state === "waiting") {
+      clearTimeout(timeoutRef.current!);
+      setState("idle");
+      alert("Apressado! Você atirou antes da hora. Tente de novo.");
+    } else if (state === "ready") {
+      const ms = Date.now() - startTime;
+      setResult(ms);
+      setState("done");
+      onComplete(ms);
+      buzz("tap");
+    }
+  };
+
+  return (
+    <div className="relative w-full h-32 bg-black border-2 border-slate-800 rounded-lg overflow-hidden flex flex-col items-center justify-center cursor-pointer select-none transition-colors duration-200"
+         onClick={state === "idle" || state === "done" ? startTest : handleTap}
+         style={{
+           backgroundColor: state === "ready" ? "#16a34a" : state === "waiting" ? "#b91c1c" : "#0f172a",
+           borderColor: state === "ready" ? "#4ade80" : "#1e293b"
+         }}>
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none"></div>
+      
+      {state === "idle" && <><BrainCircuit size={32} className="text-cyan-500 mb-2 animate-pulse" /><span className="text-cyan-400 font-bold tracking-widest text-sm">INICIAR TESTE NEURAL</span><span className="text-[10px] text-slate-500 mt-1">Toque quando ficar verde</span></>}
+      {state === "waiting" && <span className="text-red-300 font-black tracking-widest text-xl animate-pulse">AGUARDE...</span>}
+      {state === "ready" && <span className="text-white font-black tracking-widest text-3xl drop-shadow-md">ATIRE!</span>}
+      {state === "done" && (
+        <div className="text-center z-10">
+          <span className="block text-[10px] text-slate-400">TEMPO DE REAÇÃO</span>
+          <strong className="text-3xl text-cyan-400 font-black">{result} <span className="text-sm">ms</span></strong>
+          <span className="block text-[10px] text-slate-500 mt-2">Toque para refazer</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- MINIGAME 2: SIMULADOR FÍSICO COM AIM ASSIST (REMASTERIZADO) ---
+function PullUpSimulator({ onFeedback, onComplete, usesSleeve }: { onFeedback: (msg: string) => void, onComplete: (coeff: number, btn: number) => void, usesSleeve: boolean }) {
+  // ... (Mesma lógica robusta do minigame anterior, com ajustes visuais)
   const [attempts, setAttempts] = useState(0);
   const [metrics, setMetrics] = useState<{speed: number, deviation: number}[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
   const [startX, setStartX] = useState(0);
   const [startTime, setStartTime] = useState(0);
-  
   const [crosshairY, setCrosshairY] = useState(0);
   const [crosshairX, setCrosshairX] = useState(0);
-  const [liveSpeed, setLiveSpeed] = useState("0.0");
-  const [liveDev, setLiveDev] = useState("0");
-  const [liveStatus, setLiveStatus] = useState<{msg: string, color: string}>({msg: "Aguardando Disparo", color: "text-slate-500"});
-  
-  const [showResults, setShowResults] = useState(false);
-  const [finalBtn, setFinalBtn] = useState(50);
-  const [finalCoeff, setFinalCoeff] = useState(1.0);
-
+  const [liveStatus, setLiveStatus] = useState<{msg: string, color: string}>({msg: "SCANNING", color: "text-cyan-700"});
   const buttonRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (showResults) return;
+    if (attempts >= 3) return;
     buttonRef.current?.setPointerCapture(e.pointerId);
-    setIsDragging(true);
-    setStartY(e.clientY);
-    setStartX(e.clientX);
-    setStartTime(Date.now());
-    setLiveStatus({msg: "ATIRANDO...", color: "text-orange-500"});
+    setIsDragging(true); setStartY(e.clientY); setStartX(e.clientX); setStartTime(Date.now());
+    setLiveStatus({msg: "TRACKING...", color: "text-orange-500"});
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -156,60 +158,36 @@ function PullUpSimulator({ onComplete }: { onComplete: (coeff: number, btn: numb
     const timeElapsed = Date.now() - startTime;
     const currentSpeed = rawY / Math.max(1, timeElapsed); 
     
-    setLiveSpeed(currentSpeed.toFixed(2));
-    setLiveDev(Math.abs(rawX).toFixed(0));
+    let renderY = 0; let renderX = rawX; 
+    const frictionBase = usesSleeve ? 0.6 : 0.35; // Dedeira escorrega mais fácil no peito
 
-    let renderY = 0;
-    let renderX = rawX; // 100% Controle do usuário no eixo X. Se tremer o dedo, a mira treme.
-
-    // FÍSICA SEVERA DO AIM ASSIST
     if (rawY < 140) {
-      // BURACA NEGRO DO PEITO: Corta a velocidade drasticamente. 
-      // Exige uma puxada violenta inicial para sair.
-      renderY = Math.max(0, rawY * (currentSpeed < 1.5 ? 0.2 : 0.45)); 
-      setLiveStatus({msg: "PRESO NO PEITO", color: "text-cyan-500"});
-    } 
-    else if (rawY >= 140 && rawY <= 240) {
-      // JANELA DA CABEÇA (140px a 240px de arraste do dedo)
-      if (currentSpeed > 3.0) {
-        renderY = rawY * 1.2; // Passou voando
-        setLiveStatus({msg: "PINOU (MUITO RÁPIDO)", color: "text-red-500"});
+      renderY = Math.max(0, rawY * frictionBase); 
+      setLiveStatus({msg: "MAGNETISMO: PEITO", color: "text-cyan-500"});
+    } else if (rawY >= 140 && rawY <= 240) {
+      if (currentSpeed > 3.2) {
+        renderY = rawY * 1.15; setLiveStatus({msg: "ALERTA: OVERFLICK", color: "text-red-500"});
       } else {
-        // Cravou no capa! Magnetismo centraliza suavemente
         renderY = 160 + ((rawY - 180) * 0.15); 
-        // Pequena ajuda no X se estiver na cabeça, simulando o hitbox
-        renderX = rawX * 0.4; 
-        setLiveStatus({msg: "CAPA!", color: "text-red-500 font-black drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]"});
+        renderX = rawX * 0.3; 
+        setLiveStatus({msg: "LOCK-ON: HEADSHOT", color: "text-red-500 font-black drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]"});
       }
-    } 
-    else {
-      // PINADA GERAL
-      renderY = rawY * 1.2; 
-      setLiveStatus({msg: "PINOU (ALTO DEMAIS)", color: "text-red-500"});
+    } else {
+      renderY = rawY * 1.2; setLiveStatus({msg: "ALERTA: RECOIL LOSS", color: "text-red-500"});
     }
-
-    setCrosshairY(renderY);
-    setCrosshairX(renderX);
+    setCrosshairY(renderY); setCrosshairX(renderX);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return;
     setIsDragging(false);
-    
-    const finalRenderY = crosshairY;
     const finalRenderX = crosshairX;
-    
-    setCrosshairY(0);
-    setCrosshairX(0);
+    setCrosshairY(0); setCrosshairX(0);
     buttonRef.current?.releasePointerCapture(e.pointerId);
 
     const rawY = startY - e.clientY;
     const timeTaken = Date.now() - startTime;
-    
-    if (rawY < 30) {
-      setLiveStatus({msg: "FALHOU", color: "text-slate-500"});
-      return;
-    }
+    if (rawY < 30) { setLiveStatus({msg: "ABORTADO", color: "text-slate-500"}); return; }
 
     const speed = rawY / timeTaken;
     const deviation = Math.abs(finalRenderX);
@@ -220,140 +198,65 @@ function PullUpSimulator({ onComplete }: { onComplete: (coeff: number, btn: numb
     setAttempts(currentAttempt);
 
     if (currentAttempt >= 3) {
-      // GERAÇÃO DOS DADOS FINAIS
       const avgSpeed = newMetrics.reduce((a, b) => a + b.speed, 0) / 3;
       const avgDev = newMetrics.reduce((a, b) => a + b.deviation, 0) / 3;
       
-      // Lógica do Coeficiente (Sensibilidade)
       let coeff = 1.0;
-      if (avgSpeed > 2.5) coeff = 0.82; // Puxa muito rápido, diminui sensi
-      else if (avgSpeed < 1.2) coeff = 1.25; // Puxa muito devagar, aumenta sensi
-      else coeff = 1.0; 
-
-      // Lógica do Botão (Precisão e Estabilidade)
+      if (avgSpeed > 2.5) coeff = 0.85; else if (avgSpeed < 1.2) coeff = 1.20;
       let btn = 52;
-      if (avgDev > 35) btn = 66; // Tremedeira alta -> Botão grande pra estabilizar o dedão
-      else if (avgSpeed > 2.5) btn = 60; // Rápido -> Botão maior
-      else if (avgSpeed < 1.2) btn = 44; // Lento -> Botão pequeno
-      else btn = 54; // Padrão pro player
-
-      setFinalBtn(btn);
-      setFinalCoeff(coeff);
-      setShowResults(true);
+      if (avgDev > 35) btn = 64; else if (avgSpeed > 2.5) btn = 58; else if (avgSpeed < 1.2) btn = 44;
+      
       onComplete(coeff, btn);
+      setLiveStatus({msg: "ANÁLISE COMPLETA", color: "text-green-400 font-bold"});
     } else {
-      setLiveStatus({msg: "AGUARDANDO PRÓXIMO TIRO", color: "text-slate-500"});
+      setLiveStatus({msg: `DADOS COLETADOS [${currentAttempt}/3]`, color: "text-slate-400"});
     }
   };
 
-  const reset = () => { 
-    setAttempts(0); setMetrics([]); setShowResults(false); 
-    setLiveStatus({msg: "PRONTO", color: "text-slate-500"});
-    onComplete(1.0, 50); 
-  };
-
-  if (showResults) {
-    const avgS = (metrics.reduce((a, b) => a + b.speed, 0) / 3).toFixed(2);
-    const avgD = (metrics.reduce((a, b) => a + b.deviation, 0) / 3).toFixed(0);
-    return (
-      <div className="relative w-full h-[400px] bg-[#050508] border border-cyan-900 rounded-lg p-6 flex flex-col justify-center items-center shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in">
-        <h3 className="text-cyan-400 font-bold mb-6 text-lg tracking-widest flex items-center gap-2">
-          <BarChart3 size={20} /> RELATÓRIO DE BALÍSTICA
-        </h3>
-        
-        <div className="grid grid-cols-2 gap-4 w-full max-w-xs mb-8">
-          <div className="bg-slate-900/80 border border-slate-800 p-3 rounded text-center">
-            <span className="block text-[10px] text-slate-400 mb-1">VELOCIDADE MÉDIA</span>
-            <strong className="text-xl text-white">{avgS} <span className="text-xs text-slate-500">px/ms</span></strong>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-800 p-3 rounded text-center">
-            <span className="block text-[10px] text-slate-400 mb-1">DESVIO LATERAL (TREMOR)</span>
-            <strong className="text-xl text-white">{avgD} <span className="text-xs text-slate-500">px</span></strong>
-          </div>
-        </div>
-
-        <div className="w-full max-w-xs bg-cyan-950/30 border border-cyan-800/50 p-4 rounded-lg relative overflow-hidden mb-6">
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent translate-x-[-100%] animate-[shimmer_2s_infinite]" />
-          <p className="text-[10px] text-cyan-500 font-mono mb-2 text-center">PARÂMETROS GERADOS</p>
-          <div className="flex justify-between items-center border-b border-cyan-900/50 pb-2 mb-2">
-            <span className="text-slate-300 text-sm">Botão Recomendado:</span>
-            <strong className="text-cyan-400 text-xl">{finalBtn}%</strong>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-slate-300 text-sm">Compensação Sensi:</span>
-            <strong className="text-cyan-400 text-xl">{finalCoeff.toFixed(2)}x</strong>
-          </div>
-        </div>
-
-        <Button onClick={reset} variant="outline" className="w-full max-w-xs border-slate-700 text-slate-300 hover:text-white">
-          <RefreshCw size={14} className="mr-2 inline" /> RECALIBRAR MOTOR
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative w-full h-[400px] bg-[#0a0a0c] border border-slate-800 rounded-lg overflow-hidden touch-none mt-4 shadow-[inset_0_0_50px_rgba(0,0,0,1)] flex flex-col justify-end bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-[#020202]">
+    <div className="relative w-full h-[350px] bg-black border border-slate-800/80 rounded-lg overflow-hidden touch-none mt-4 shadow-[inset_0_0_60px_rgba(8,145,178,0.15)] flex flex-col justify-end">
+      {/* Grid Background Cyberpunk */}
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
       
-      {/* HUD Telemetria */}
-      <div className="absolute top-4 left-4 right-4 flex justify-between z-40 pointer-events-none">
-        <div className="bg-black/80 border border-slate-800 px-3 py-1.5 rounded flex flex-col backdrop-blur-sm">
-          <span className="text-[8px] text-slate-500 tracking-widest">VELOCIDADE</span>
-          <span className="text-xs text-cyan-400 font-mono">{liveSpeed} px/ms</span>
-        </div>
-        <div className="flex gap-1 items-center">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className={`h-1.5 w-6 rounded-full transition-colors ${i < attempts ? 'bg-orange-500 shadow-[0_0_8px_#f97316]' : 'bg-slate-800'}`} />
-          ))}
-        </div>
-        <div className="bg-black/80 border border-slate-800 px-3 py-1.5 rounded flex flex-col items-end backdrop-blur-sm">
-          <span className="text-[8px] text-slate-500 tracking-widest">DESVIO (X)</span>
-          <span className="text-xs text-orange-400 font-mono">{liveDev} px</span>
-        </div>
-      </div>
-
-      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40">
-        <span className={`text-[10px] font-black tracking-widest transition-colors duration-200 ${liveStatus.color} bg-black/50 px-2 py-0.5 rounded backdrop-blur-sm`}>
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40">
+        <span className={`text-[10px] font-mono tracking-widest transition-colors duration-200 ${liveStatus.color} bg-black/80 border border-slate-800 px-3 py-1 rounded backdrop-blur-sm shadow-[0_0_10px_rgba(0,0,0,0.5)]`}>
           {liveStatus.msg}
         </span>
       </div>
 
-      {/* BONECO 3D APROXIMADO */}
-      <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-80">
-        {/* Cabeça */}
-        <div className="w-12 h-14 bg-red-500/10 border-2 border-red-500/80 rounded-[45%] flex items-center justify-center mb-1 shadow-[0_0_20px_rgba(255,0,0,0.3)]">
-          <span className="text-[8px] text-red-500 font-black opacity-80 bg-black/60 px-1 rounded">HEAD</span>
+      <div className="absolute bottom-[90px] left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-60">
+        <div className="w-12 h-14 bg-red-500/10 border border-red-500/80 rounded-[45%] flex items-center justify-center mb-1 shadow-[0_0_20px_rgba(255,0,0,0.4)]">
+          <Crosshair size={14} className="text-red-500 opacity-50" />
         </div>
-        {/* Pescoço */}
-        <div className="w-5 h-4 bg-slate-700 rounded-sm"></div>
-        {/* Peito */}
-        <div className="w-28 h-32 bg-cyan-900/30 border-t-2 border-x-2 border-cyan-700 rounded-t-[2.5rem] flex items-center justify-center shadow-[inset_0_10px_30px_rgba(0,0,0,0.7)]">
-          <div className="flex flex-col items-center opacity-40">
-            <span className="text-[8px] text-cyan-400 font-bold tracking-widest">GRAVITY</span>
-            <span className="text-[8px] text-cyan-400 font-bold tracking-widest">ZONE</span>
+        <div className="w-5 h-4 bg-slate-800 rounded-sm"></div>
+        <div className="w-28 h-32 bg-gradient-to-b from-cyan-900/30 to-transparent border-t border-cyan-700/50 rounded-t-[2.5rem] flex items-center justify-center">
+          <div className="w-16 h-16 border border-cyan-800/30 rounded-full flex items-center justify-center">
+            <span className="text-[8px] text-cyan-500 font-mono opacity-40">GRAVITY WELL</span>
           </div>
         </div>
       </div>
       
-      {/* MIRA VISUAL (CONTROLADA PELO JOGADOR) */}
       <div 
-        className="absolute bottom-[140px] left-1/2 -translate-x-1/2 text-white transition-transform duration-75 pointer-events-none z-30"
+        className="absolute bottom-[130px] left-1/2 -translate-x-1/2 text-cyan-400 transition-transform duration-75 pointer-events-none z-30 mix-blend-screen"
         style={{ transform: `translate(${crosshairX}px, -${crosshairY}px)` }}
       >
-        <CrosshairIcon size={42} strokeWidth={1.5} className="drop-shadow-[0_0_8px_rgba(255,255,255,1)]" />
+        <LocateFixed size={40} strokeWidth={1} className="drop-shadow-[0_0_10px_rgba(34,211,238,1)]" />
       </div>
 
-      {/* BOTÃO INTERATIVO */}
       <div 
         ref={buttonRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className={`relative z-40 mb-8 mx-auto w-16 h-16 rounded-full flex items-center justify-center select-none touch-none transition-colors bg-[#ff5a12] shadow-[0_0_25px_rgba(255,90,18,0.6)] active:scale-90 cursor-grab active:cursor-grabbing border-2 border-orange-400/50`}
+        className={`relative z-40 mb-8 mx-auto w-16 h-16 rounded-full flex items-center justify-center select-none touch-none transition-colors border-2 ${attempts >= 3 ? 'bg-cyan-900 border-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.4)]' : 'bg-[#ff5a12] border-orange-400 shadow-[0_0_30px_rgba(255,90,18,0.5)] active:scale-90 cursor-grab active:cursor-grabbing'}`}
       >
-        <Target size={30} color="white" />
+        {attempts >= 3 ? <Activity size={26} color="#22d3ee" /> : <Fingerprint size={28} color="white" />}
       </div>
+      
+      {attempts >= 3 && (
+        <Button onClick={() => { setAttempts(0); setMetrics([]); onComplete(1.0, 50); }} variant="outline" className="absolute top-4 right-4 text-[10px] py-1 px-3 h-auto bg-black/80 border-slate-700 text-slate-400 z-50">REBOOT</Button>
+      )}
     </div>
   );
 }
@@ -362,50 +265,41 @@ function PullUpSimulator({ onComplete }: { onComplete: (coeff: number, btn: numb
 export default function Index() {
   const [lang, setLang] = useState<Lang>("pt");
   const [sound, setSound] = useState(true);
-  const [device, setDevice] = useState(devices[0] ?? "Xiaomi");
   
+  // States Unificados da Central Neural
+  const [device, setDevice] = useState(devices[0]);
   const [resX, setResX] = useState(1080);
   const [resY, setResY] = useState(2400);
   const [dpiNumber, setDpiNumber] = useState(411);
+  const [usesSleeve, setUsesSleeve] = useState(false); // Dedeira Gamer
+  
+  const [reactionMs, setReactionMs] = useState(300); // Reflexo default
   const [dragCoeff, setDragCoeff] = useState(1.0);
   const [computedBtn, setComputedBtn] = useState(50);
-  const [isApplying, setIsApplying] = useState(false);
-
-  const [sensi, setSensi] = useState<Sensitivity>({ geral: 192, red: 188, x2: 176, x4: 164, awm: 92, free: 148 });
+  
+  const [sensi, setSensi] = useState<Sensitivity & { archetype?: string }>({ geral: 192, red: 188, x2: 176, x4: 164, awm: 92, free: 148, archetype: "NÃO CALIBRADO" });
+  const [isBooting, setIsBooting] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
-  
-  const [calStep, setCalStep] = useState(0);
-  const [calStart, setCalStart] = useState(0);
-  const [latencies, setLatencies] = useState<number[]>([]);
-  const [gyro, setGyro] = useState(68);
-  const [friction, setFriction] = useState(42);
-  const [jitter, setJitter] = useState(76);
-  const [os, setOs] = useState<"Android" | "iOS">("Android");
-  const [pointer, setPointer] = useState(7);
-  const [delay, setDelay] = useState(180);
-  const [convertDpi, setConvertDpi] = useState(411);
-  const [tip, setTip] = useState(0);
-  
   const audioRef = useRef<AudioContext | null>(null);
-  const t = labels[lang];
 
-  const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
-  const recoilTightness = 52 - gyro * .2 - jitter * .16 + friction * .08;
-  const targetPositions = [{ left: "20%", top: "62%" }, { left: "70%", top: "24%" }, { left: "55%", top: "68%" }];
+  // Efeito de Boot inicial Cyberpunk
+  useEffect(() => {
+    setTimeout(() => setIsBooting(false), 2000);
+  }, []);
 
   const buzz = (kind: "tap" | "generate" = "tap") => {
-    if (navigator.vibrate) navigator.vibrate(kind === "generate" ? [25, 20, 45] : 18);
+    if (navigator.vibrate) navigator.vibrate(kind === "generate" ? [30, 40, 50] : 15);
     if (!sound) return;
     const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = audioRef.current ?? new AudioCtx(); audioRef.current = ctx;
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.type = kind === "generate" ? "sawtooth" : "sine";
-    osc.frequency.setValueAtTime(kind === "generate" ? 180 : 540, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(kind === "generate" ? 620 : 360, ctx.currentTime + .09);
-    gain.gain.setValueAtTime(.045, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .1);
-    osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .11);
+    osc.type = kind === "generate" ? "square" : "sine";
+    osc.frequency.setValueAtTime(kind === "generate" ? 120 : 600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(kind === "generate" ? 800 : 300, ctx.currentTime + .1);
+    gain.gain.setValueAtTime(.05, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .1);
+    osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .15);
   };
   
   const notify = (text: string) => { setToast({ id: Date.now(), text }); window.setTimeout(() => setToast(null), 3000); };
@@ -415,168 +309,196 @@ export default function Index() {
     setScanning(true);
     
     window.setTimeout(() => { 
-      const novaSensi = calculateSensi({
-        brand: device,
-        resX: resX,
-        resY: resY,
-        dpi: dpiNumber,
-        dragCoefficient: dragCoeff,
-        baseButtonSize: computedBtn
+      const nova = calculateSensi({
+        brand: device, resX, resY, dpi: dpiNumber, 
+        dragCoefficient: dragCoeff, reactionMs, usesSleeve
       });
-
-      setSensi({ 
-        geral: novaSensi.geral, 
-        red: novaSensi.redDot, 
-        x2: novaSensi.scope2x, 
-        x4: novaSensi.scope4x, 
-        awm: novaSensi.awm, 
-        free: Math.round(novaSensi.geral * 0.75) 
-      }); 
-      setComputedBtn(novaSensi.buttonSize);
+      setSensi(nova); 
+      setComputedBtn(nova.buttonSize);
       setScanning(false); 
-      notify("Matriz atualizada baseada no seu relatório balístico.");
-    }, 800);
+      notify("Matriz SensiX processada com sucesso.");
+    }, 1200);
   };
 
   const copyValues = async () => {
-    const text = `${t.general}: ${sensi.geral}\n${t.redDot}: ${sensi.red}\n2x: ${sensi.x2}\n4x: ${sensi.x4}\nAWM: ${sensi.awm}\n${t.peek}: ${sensi.free}`;
-    await navigator.clipboard.writeText(text); buzz(); notify(t.copied);
-  };
-  
-  const startCalibration = () => { buzz("generate"); setLatencies([]); setCalStep(1); setCalStart(performance.now()); };
-  const hitTarget = () => {
-    buzz(); const now = performance.now(); setLatencies((p) => [...p, Math.round(now - calStart)]);
-    if (calStep >= 3) setCalStep(4); else { setCalStep((p) => p + 1); setCalStart(now); }
-  };
-  
-  const downloadProfile = () => {
-    buzz("generate");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#0a0a0c"/><path d="M0 580L1200 250" stroke="#192126"/><text x="70" y="100" fill="#ff5a12" font-family="Arial" font-weight="700" font-size="32">SENSIX PRO // CONFIG PROFILE</text><text x="70" y="155" fill="#9aa4aa" font-family="Arial" font-size="20">${device} · ${resX}x${resY} · ${dpiNumber} DPI · ${os}</text><text x="70" y="250" fill="#f5f7f8" font-family="Arial" font-size="30">GERAL ${sensi.geral}   RED DOT ${sensi.red}   2X ${sensi.x2}</text><text x="70" y="310" fill="#f5f7f8" font-family="Arial" font-size="30">4X ${sensi.x4}   AWM ${sensi.awm}   FREE LOOK ${sensi.free}</text><text x="70" y="410" fill="#38d9e6" font-family="Arial" font-size="26">FIRE BUTTON ${computedBtn}%   ·   POINTER ${pointer}/10   ·   ${convertDpi} DPI</text><rect x="70" y="535" width="270" height="5" fill="#ff5a12"/><text x="70" y="590" fill="#707b82" font-family="Arial" font-size="18">ANTI-LAG MATRIX // VERIFIED PROFILE</text></svg>`;
-    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })); const a = document.createElement("a"); a.href = url; a.download = "sensix-pro-profile.svg"; a.click(); URL.revokeObjectURL(url); notify(t.configReady);
+    const text = `ARQUÉTIPO: ${sensi.archetype}\nGeral: ${sensi.geral}\nRed Dot: ${sensi.red}\n2x: ${sensi.x2}\n4x: ${sensi.x4}\nAWM: ${sensi.awm}\nOlhadinha: ${sensi.free}\nBotão: ${computedBtn}%`;
+    await navigator.clipboard.writeText(text); buzz(); notify("Copiado para área de transferência.");
   };
 
-  const sensiItems = useMemo(() => [[t.general, sensi.geral], [t.redDot, sensi.red], ["2x", sensi.x2], ["4x", sensi.x4], ["AWM", sensi.awm], [t.peek, sensi.free]] as const, [sensi, t]);
-  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  if (isBooting) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center font-mono text-cyan-500">
+        <Activity size={48} className="animate-pulse mb-4" />
+        <h1 className="text-2xl font-black tracking-[0.3em] glitch" data-text="SENSIX PRO">SENSIX PRO</h1>
+        <p className="mt-2 text-xs opacity-50">INITIALIZING NEURAL LINK...</p>
+        <div className="w-48 h-1 bg-slate-800 mt-4 overflow-hidden rounded"><div className="h-full bg-cyan-500 animate-[pulse_1s_infinite] w-full origin-left scale-x-0 transition-transform duration-1000" style={{transform: 'scaleX(1)'}}></div></div>
+      </div>
+    );
+  }
 
-  return <main className="app-shell">
+  return <main className="min-h-screen bg-[#050508] text-slate-300 font-sans selection:bg-cyan-900 selection:text-cyan-100 pb-20">
     <style>{`
-      @keyframes shimmer { 100% { transform: translateX(100%); } }
-      .animate-fade-in { animation: fadeIn 0.4s ease-out; }
-      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      .glitch { position: relative; }
+      .glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+      .glitch::before { left: 2px; text-shadow: -1px 0 red; clip: rect(24px, 550px, 90px, 0); animation: glitch-anim 3s infinite linear alternate-reverse; }
+      .glitch::after { left: -2px; text-shadow: -1px 0 blue; clip: rect(85px, 550px, 140px, 0); animation: glitch-anim 2.5s infinite linear alternate-reverse; }
+      @keyframes glitch-anim { 0% { clip: rect(20px, 9999px, 86px, 0); } 100% { clip: rect(67px, 9999px, 14px, 0); } }
+      .scanlines { background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1)); background-size: 100% 4px; position: absolute; inset: 0; pointer-events: none; z-index: 50; opacity: 0.3; }
+      .cyber-panel { background: rgba(10, 12, 16, 0.8); border: 1px solid rgba(8, 145, 178, 0.3); box-shadow: inset 0 0 20px rgba(0,0,0,0.8); backdrop-filter: blur(8px); }
     `}</style>
-    <div className="hud-grid" aria-hidden="true" />
-    <header className="topbar">
-      <button className="brand" onClick={() => scrollTo("top")} aria-label="SensiX Pro home"><span className="brand-mark"><Crosshair /></span><span><strong>SENSI<span>X</span></strong><small>PRO CALIBRATION SYSTEM</small></span></button>
-      <div className="system-status"><span className="status-dot" /><span><b>{t.online}</b><small>{t.status}</small></span></div>
-      <div className="header-actions">
-        <Button variant="ghost" onClick={() => { setLang(lang === "pt" ? "en" : "pt"); buzz(); }} aria-label="Change language"><Languages size={17} /><span>{lang.toUpperCase()}</span></Button>
-        <Button variant="ghost" onClick={() => { setSound(!sound); buzz(); }} aria-label={sound ? t.soundOn : t.soundOff}>{sound ? <Volume2 size={18} /> : <VolumeX size={18} />}</Button>
+    
+    <div className="scanlines" />
+
+    {/* Header Cyber */}
+    <header className="sticky top-0 z-40 bg-black/90 border-b border-cyan-900/50 backdrop-blur-md px-4 py-3 flex justify-between items-center shadow-[0_4px_30px_rgba(8,145,178,0.1)]">
+      <div className="flex items-center gap-2">
+        <BrainCircuit className="text-cyan-500" size={24} />
+        <span className="font-black tracking-widest text-white text-lg">SENSI<span className="text-cyan-500">X</span></span>
+      </div>
+      <div className="flex items-center gap-4 text-xs font-mono">
+        <span className="flex items-center gap-1 text-green-400"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" /> ONLINE</span>
+        <button onClick={() => setSound(!sound)} className="text-slate-400 hover:text-white transition-colors">{sound ? <Volume2 size={16}/> : <VolumeX size={16}/>}</button>
       </div>
     </header>
 
-    <div className="page" id="top">
-      <section className="hero-band">
-        <div className="hero-copy animate-fade-in"><p className="eyebrow"><span /> PERFORMANCE LAB // 04</p><h1>SENSI<span>X</span> PRO</h1><p className="hero-tagline">{t.tagline}</p><p className="hero-intro">{t.intro}</p><div className="hero-actions"><Button onClick={() => scrollTo("sensitivity")}><Zap size={17} />{t.generate}</Button><Button variant="outline" onClick={() => scrollTo("calibration")}><Radar size={17} />{t.calibrate}</Button></div></div>
-        <div className="telemetry" aria-label="Live performance telemetry"><div className="radar-disc"><div className="radar-sweep" /><Crosshair size={42} /><span className="ping ping-1" /><span className="ping ping-2" /></div><div className="metric-stack"><div><span>98.7%</span><small>{t.precision}</small></div><div><span>12ms</span><small>{t.response}</small></div></div></div>
-      </section>
-
-      <nav className="quick-nav" aria-label="Quick tools">
-        {[{ icon: SlidersHorizontal, label: t.sensi, id: "sensitivity" }, { icon: Hand, label: t.fire, id: "fire" }, { icon: Radar, label: t.touch, id: "calibration" }, { icon: Gauge, label: t.system, id: "system" }].map((item, i) => <button key={item.id} onClick={() => scrollTo(item.id)}><span>0{i + 1}</span><item.icon size={19} /><b>{item.label}</b><ChevronRight size={16} /></button>)}
-      </nav>
-
-      <section id="sensitivity" className="panel sensitivity-panel">
-        <SectionTitle icon={Crosshair} tag="01 // CORE" title={t.sensi} subtitle={t.sensiSub} />
-        
-        <div className="grid grid-cols-2 gap-4 mb-6" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem'}}>
-          <label style={{gridColumn: 'span 2', display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>{t.device}
-            <select style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#fff', outline: 'none'}} value={device} onChange={(e) => setDevice(e.target.value)}>
-              {devices.map((d) => <option key={d}>{d}</option>)}
-            </select>
-          </label>
-          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>Resolução (X / Y)
-            <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.25rem'}}>
-              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#fff', outline: 'none'}} value={resX} onChange={e => setResX(Number(e.target.value))} />
-              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#fff', outline: 'none'}} value={resY} onChange={e => setResY(Number(e.target.value))} />
-            </div>
-          </label>
-          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>DPI Atual
-            <input type="number" style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#38d9e6', fontWeight: 'bold', outline: 'none'}} value={dpiNumber} onChange={e => setDpiNumber(Number(e.target.value))} />
-          </label>
-          
-          <div style={{gridColumn: 'span 2', backgroundColor: 'rgba(17,21,24,0.6)', padding: '0.85rem', borderRadius: '4px', border: '1px solid rgba(56,217,230,0.4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-            <span style={{fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Botão Recomendado (Telemetria):</span>
-            <span style={{color: '#38d9e6', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '1.1rem'}}>{computedBtn}%</span>
-          </div>
-        </div>
-
-        <div className={`sensi-output ${scanning ? "is-scanning" : ""}`}><div className="scan-line" />{sensiItems.map(([name, value], i) => <div className="sensi-stat" key={name} style={{ animationDelay: `${i * 45}ms` }}><span>{String(i + 1).padStart(2, "0")} // {name}</span><strong>{value}</strong><div><i style={{ width: `${value / 2}%` }} /></div></div>)}</div>
-        <div className="panel-actions"><Button onClick={generate} disabled={scanning}><RefreshCw className={scanning ? "spin" : ""} size={17} />{t.newCombo}</Button><Button variant="outline" onClick={copyValues}><Copy size={17} />{t.copy}</Button></div>
-      </section>
-
-      <div className="two-column">
-        <section id="fire" className="panel">
-          <SectionTitle icon={LocateFixed} tag="02 // HUD" title={t.fire} subtitle={t.fireSub} />
-          
-          <div style={{marginBottom: '1.5rem', paddingBottom: '1.5rem'}}>
-            <h3 style={{color: '#ff5a12', fontWeight: 'bold', marginBottom: '0.75rem', textTransform: 'uppercase', fontSize: '0.875rem', letterSpacing: '0.1em'}}><Crosshair size={14} style={{display: 'inline', marginRight: '0.5rem', position: 'relative', top: '-1px'}}/> Simulador de Balística (Aim Assist)</h3>
-            <p style={{fontSize: '0.75rem', color: '#707b82', marginBottom: '1rem', lineHeight: '1.4'}}>A física responde 100% ao seu dedo. Escape da gravidade do peito e trave na cabeça. Velocidade e desvio lateral definirão seu botão ideal.</p>
-            <PullUpSimulator onComplete={(coeff, btn) => { setDragCoeff(coeff); setComputedBtn(btn); }} />
-          </div>
-        </section>
-
-        <section id="calibration" className="panel">
-          <SectionTitle icon={Radar} tag="03 // TOUCH" title={t.touch} subtitle={t.touchSub} />
-          <div className="calibration-field">
-            <div className="field-grid" />
-            {calStep > 0 && calStep < 4 && <button className="target-node" style={targetPositions[calStep - 1] ?? targetPositions[0]} onClick={hitTarget} aria-label={t.tap}><span>{calStep}</span></button>}
-            {calStep === 0 && <div className="cal-empty"><MousePointer2 size={28} /><span>READY_</span></div>}
-            {calStep === 4 && <div className="cal-complete"><ShieldCheck size={34} /><strong>{t.done}</strong><span>{t.latency}: {avgLatency}ms</span></div>}
-            {calStep > 0 && calStep < 4 && <p className="target-instruction">{t.tap} // 0{calStep}/03</p>}
-          </div>
-          <Button className="w-full" onClick={startCalibration}><ScanLine size={18} />{calStep === 0 ? t.begin : calStep === 4 ? t.done : t.begin}</Button>
-        </section>
+    <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6 mt-4">
+      
+      {/* Hero Section */}
+      <div className="text-center mb-8 relative">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-cyan-600/20 blur-[50px] pointer-events-none rounded-full" />
+        <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-2 uppercase">Laboratório de <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">Performance</span></h1>
+        <p className="text-slate-400 text-sm md:text-base font-mono">CALIBRAÇÃO MECÂNICA E NEURAL PARA FPS MOBILE</p>
       </div>
 
-      <section className="panel stability-panel">
-        <SectionTitle icon={Activity} tag="04 // RECOIL" title={t.stability} subtitle={t.stabilitySub} />
-        <div className="stability-grid"><div className="slider-stack">{[[t.gyro, gyro, setGyro], [t.friction, friction, setFriction], [t.jitter, jitter, setJitter]].map(([name, value, setter]) => <label key={String(name)}><span><b>{String(name)}</b><output>{String(value)}%</output></span><input type="range" min="0" max="100" value={Number(value)} onChange={(e) => (setter as React.Dispatch<React.SetStateAction<number>>)(Number(e.target.value))} /></label>)}</div><div className="recoil-sim"><svg viewBox="0 0 300 180" role="img" aria-label="Recoil pattern"><path className="recoil-axis" d="M150 15V165M35 145H265"/><path className="recoil-path" d={`M150 145 C${130-recoilTightness} 120, ${175+recoilTightness} 112, 148 92 S${130-recoilTightness/2} 62, 154 28`} /><circle cx="150" cy="145" r="10" /><circle cx="148" cy="92" r="6" /><circle cx="154" cy="28" r="5" /></svg><span>LIVE_RECOIL_VECTOR</span></div></div>
-      </section>
-
-      <section id="system" className="panel system-panel">
-        <SectionTitle icon={Gauge} tag="05 // SYSTEM" title={t.system} subtitle={t.systemSub} />
-        <div className="os-toggle"><button className={os === "Android" ? "active" : ""} onClick={() => setOs("Android")}>ANDROID</button><button className={os === "iOS" ? "active" : ""} onClick={() => setOs("iOS")}>iOS</button></div>
-        <div className="tuner-grid"><label><span>{t.pointer}<output>{pointer}/10</output></span><input type="range" min="1" max="10" value={pointer} onChange={(e) => setPointer(Number(e.target.value))} /></label><label><span>{t.delay}<output>{delay}ms</output></span><input type="range" min="80" max="500" step="10" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label><span>{t.converter}<output>{convertDpi}</output></span><input type="range" min="300" max="800" step="1" value={convertDpi} onChange={(e) => setConvertDpi(Number(e.target.value))} /></label></div>
-        <div className="recommendation"><Sparkles size={18} /><div><b>{t.optimal}</b><span>{os === "Android" ? `DPI ${Math.max(360, convertDpi - 20)}–${convertDpi + 30} · Pointer ${pointer}` : `Touch ${Math.max(100, delay - 40)}–${delay}ms · 120Hz`}</span></div></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        <div style={{marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid #232c32'}}>
-          <Button 
-            className="w-full" 
-            style={{backgroundColor: isApplying ? '#232c32' : '#0891b2', transition: 'all 0.3s ease', padding: '0.75rem'}}
-            onClick={() => {
-              setIsApplying(true);
-              buzz("generate");
-              setTimeout(() => { setIsApplying(false); notify("Ajustes de Kernel e Ponteiro injetados com sucesso!"); }, 2800);
-            }}
-            disabled={isApplying}
-          >
-            {isApplying ? (
-              <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}><RefreshCw className="spin" size={16}/> Sincronizando Matriz de Toque...</span>
-            ) : (
-              <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold'}}><Zap size={16}/> Injetar Ajustes Finos no Sistema</span>
-            )}
-          </Button>
+        {/* COLUNA 1: COLETA DE DADOS */}
+        <div className="space-y-6">
+          <section className="cyber-panel p-5 rounded-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500" />
+            <h2 className="text-cyan-400 font-black tracking-widest text-sm mb-4 flex items-center gap-2"><Smartphone size={16}/> ESPECIFICAÇÕES DO HARDWARE</h2>
+            
+            <div className="space-y-4">
+              <label className="block">
+                <span className="text-[10px] text-slate-500 font-mono">MARCA DO SISTEMA</span>
+                <select className="w-full mt-1 bg-black border border-slate-800 p-2.5 rounded text-white text-sm outline-none focus:border-cyan-500 transition-colors" value={device} onChange={(e) => setDevice(e.target.value)}>
+                  {devices.map((d) => <option key={d}>{d}</option>)}
+                </select>
+              </label>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[10px] text-slate-500 font-mono">RESOLUÇÃO (X/Y)</span>
+                  <div className="flex gap-2 mt-1">
+                    <input type="number" className="w-full bg-black border border-slate-800 p-2.5 rounded text-white text-sm text-center outline-none focus:border-cyan-500" value={resX} onChange={e => setResX(Number(e.target.value))} />
+                    <input type="number" className="w-full bg-black border border-slate-800 p-2.5 rounded text-white text-sm text-center outline-none focus:border-cyan-500" value={resY} onChange={e => setResY(Number(e.target.value))} />
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] text-slate-500 font-mono">DPI DO KERNEL</span>
+                  <input type="number" className="w-full mt-1 bg-black border border-cyan-900/50 p-2.5 rounded text-cyan-300 font-bold text-center outline-none focus:border-cyan-400" value={dpiNumber} onChange={e => setDpiNumber(Number(e.target.value))} />
+                </label>
+              </div>
+
+              {/* Toggla da Dedeira (Novidade de hardware externo) */}
+              <div className="flex items-center justify-between bg-black/50 p-3 rounded border border-slate-800 mt-2">
+                <span className="text-xs font-mono text-slate-300 flex items-center gap-2"><Hand size={14} className="text-slate-500"/> USA DEDEIRA GAMER?</span>
+                <button onClick={() => {setUsesSleeve(!usesSleeve); buzz();}} className={`w-12 h-6 rounded-full transition-colors relative ${usesSleeve ? 'bg-cyan-600' : 'bg-slate-700'}`}>
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${usesSleeve ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="cyber-panel p-5 rounded-xl relative">
+            <div className="absolute top-0 left-0 w-1 h-full bg-orange-500" />
+            <h2 className="text-orange-400 font-black tracking-widest text-sm mb-4 flex items-center gap-2"><Zap size={16}/> TESTE DE REFLEXO (NEURAL)</h2>
+            <p className="text-[10px] text-slate-400 mb-3 font-mono leading-relaxed">Sua velocidade de reação impacta diretamente o limite de sensibilidade que seu cérebro consegue controlar sem pinar.</p>
+            <ReflexTest onComplete={setReactionMs} buzz={buzz} />
+          </section>
+        </div>
+
+        {/* COLUNA 2: FÍSICA E RESULTADO */}
+        <div className="space-y-6">
+          <section className="cyber-panel p-5 rounded-xl relative">
+            <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
+            <h2 className="text-red-400 font-black tracking-widest text-sm mb-4 flex items-center gap-2"><Target size={16}/> FÍSICA DE ARRASTE (AIM ASSIST)</h2>
+            <p className="text-[10px] text-slate-400 font-mono mb-2">Simule 3 puxadas. O algoritmo medirá sua força motriz contra a gravidade do peito.</p>
+            <PullUpSimulator onFeedback={notify} onComplete={(c, b) => {setDragCoeff(c); setComputedBtn(b);}} usesSleeve={usesSleeve} />
+          </section>
+        </div>
+      </div>
+
+      {/* PAINEL CENTRAL DE RESULTADOS (GERADOR) */}
+      <section className="cyber-panel p-1 rounded-xl mt-8 relative overflow-hidden bg-gradient-to-b from-cyan-900/40 to-black">
+        <div className="p-6">
+          <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 border-b border-slate-800 pb-6">
+            <div>
+              <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2"><Activity className="text-cyan-500"/> MATRIZ DE SENSIBILIDADE</h2>
+              <p className="text-xs text-cyan-500/70 font-mono mt-1">DADOS PROCESSADOS DA COLETA NEURAL E FÍSICA</p>
+            </div>
+            <Button onClick={generate} disabled={scanning} className="w-full md:w-auto bg-cyan-600 hover:bg-cyan-500 text-white font-bold h-12 px-8 shadow-[0_0_20px_rgba(8,145,178,0.4)]">
+              {scanning ? <RefreshCw className="animate-spin" size={20} /> : <span className="flex items-center gap-2"><BrainCircuit size={18} /> PROCESSAR MATRIZ</span>}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* ARQUÉTIPO E BOTÃO */}
+            <div className="md:col-span-1 space-y-4">
+              <div className="bg-black/60 border border-slate-800 p-4 rounded-lg relative overflow-hidden">
+                <div className="absolute right-0 top-0 opacity-10"><Target size={80}/></div>
+                <span className="block text-[10px] text-slate-500 font-mono mb-1">ARQUÉTIPO DE JOGADOR</span>
+                <strong className="text-lg text-orange-400 font-black tracking-wide">{sensi.archetype}</strong>
+              </div>
+              <div className="bg-black/60 border border-slate-800 p-4 rounded-lg relative overflow-hidden flex justify-between items-center">
+                <div>
+                  <span className="block text-[10px] text-slate-500 font-mono mb-1">BOTÃO DE TIRO (HUD)</span>
+                  <strong className="text-2xl text-cyan-400 font-black">{computedBtn}<span className="text-sm">%</span></strong>
+                </div>
+                <div className="w-12 h-12 rounded-full border-2 border-cyan-500 flex items-center justify-center bg-cyan-900/20 shadow-[0_0_15px_rgba(8,145,178,0.3)]">
+                  <Fingerprint size={20} className="text-cyan-400" />
+                </div>
+              </div>
+            </div>
+
+            {/* SENSIBILIDADES */}
+            <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-3">
+              {[
+                { name: "GERAL", val: sensi.geral, color: "text-white" },
+                { name: "RED DOT", val: sensi.red, color: "text-red-400" },
+                { name: "MIRA 2X", val: sensi.x2, color: "text-slate-300" },
+                { name: "MIRA 4X", val: sensi.x4, color: "text-slate-300" },
+                { name: "AWM", val: sensi.awm, color: "text-orange-400" },
+                { name: "OLHADINHA", val: sensi.free, color: "text-slate-500" }
+              ].map((s, i) => (
+                <div key={s.name} className={`bg-black/40 border border-slate-800/80 p-4 rounded-lg text-center transition-all ${scanning ? 'opacity-50 scale-95' : 'opacity-100 scale-100'} delay-[${i * 50}ms]`}>
+                  <span className="block text-[10px] text-slate-500 font-mono mb-2 tracking-widest">{s.name}</span>
+                  <strong className={`text-3xl font-black ${s.color}`}>{s.val}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 flex justify-end">
+            <button onClick={copyValues} className="text-xs text-slate-400 hover:text-cyan-400 font-mono flex items-center gap-2 transition-colors">
+              <Copy size={14} /> EXPORTAR PERFIL PARA CLIPBOARD
+            </button>
+          </div>
         </div>
       </section>
 
-      <section className="panel tips-panel">
-        <SectionTitle icon={BellRing} tag="06 // INTEL" title={t.tips} subtitle="TACTICAL DATABASE" />
-        <div className="tip-tabs">{[t.tricks, t.physics, t.graphics].map((x, i) => <button className={tip === i ? "active" : ""} onClick={() => setTip(i)} key={x}>{String(i + 1).padStart(2, "0")} {x}</button>)}</div>
-        <div className="tip-content"><div className="tip-number">0{tip + 1}</div><div><small>PROTOCOL_{["DRAG", "SURFACE", "RENDER"][tip] ?? "DRAG"}</small><p>{[t.tip1, t.tip2, t.tip3][tip] ?? t.tip1}</p></div><Target size={25} /></div>
-      </section>
-
-      <section className="export-band"><div><p>CONFIGURATION // READY</p><h2>{device}</h2><span>{resX}x{resY} · {computedBtn}% FIRE · {os}</span></div><Button onClick={downloadProfile}><Download size={18} />{t.profile}</Button></section>
-      <footer><div className="brand-mini"><Crosshair size={18} /> SENSIX PRO</div><p>INDEPENDENT COMPETITIVE CALIBRATION TOOL</p><span>BUILD 4.8.2 // ONLINE</span></footer>
+      <footer className="text-center pt-10 pb-4 border-t border-slate-800/50 mt-12 opacity-50 hover:opacity-100 transition-opacity">
+        <div className="flex justify-center items-center gap-2 mb-2">
+          <Crosshair size={14} className="text-cyan-500" /> <span className="font-black text-sm text-white tracking-widest">SENSIX PRO</span>
+        </div>
+        <p className="text-[10px] font-mono text-slate-500">LABORATÓRIO INDEPENDENTE DE PERFORMANCE E-SPORTS V2.0</p>
+      </footer>
     </div>
-    {toast && <div className="toast" key={toast.id}><ShieldCheck size={18} />{toast.text}</div>}
+    
+    {toast && (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-cyan-900 border border-cyan-500 text-white px-6 py-3 rounded-full flex items-center gap-3 shadow-[0_10px_40px_rgba(8,145,178,0.4)] z-50 animate-fade-in font-mono text-xs">
+        <ShieldCheck size={16} /> {toast.text}
+      </div>
+    )}
   </main>;
 }
