@@ -19,6 +19,14 @@ export const Route = createFileRoute("/")({
 
 const devices = ["Xiaomi / POCO", "Samsung Galaxy", "Apple iPhone", "Motorola Edge", "Realme", "ASUS ROG"];
 
+type Lang = "pt" | "en";
+type Sensitivity = { geral: number; red: number; x2: number; x4: number; awm: number; free: number };
+type Toast = { id: number; text: string } | null;
+
+function Button({ children, variant = "primary", className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "outline" | "ghost" }) {
+  return <button className={`ui-button ui-button-${variant} ${className}`} {...props}>{children}</button>;
+}
+
 // --- MOTOR MATEMÁTICO INTEGRADO (V2.0) ---
 interface PlayerSetup {
   brand: string;
