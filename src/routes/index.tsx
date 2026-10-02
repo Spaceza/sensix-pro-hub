@@ -103,13 +103,12 @@ function calculateSensi(setup: PlayerSetup) {
   const dpiRatio = 411 / (setup.dpi || 411);
   let finalGeral = baseSensi * dpiRatio;
 
-  // Aplica o Coeficiente de Arraste extraído do simulador
+  // Interligação Direta
   finalGeral *= setup.dragCoefficient;
 
-  // Define o tamanho ideal do botão para contrabalancear o arraste
   let idealBtn = 50;
-  if (setup.dragCoefficient < 0.9) idealBtn = 65; 
-  else if (setup.dragCoefficient > 1.1) idealBtn = 40; 
+  if (setup.dragCoefficient < 0.9) idealBtn = 64; // Puxa rápido, precisa de botão maior
+  else if (setup.dragCoefficient > 1.1) idealBtn = 40; // Puxa lento, botão menor
   else idealBtn = 52; 
 
   finalGeral = Math.min(200, Math.max(0, Math.round(finalGeral)));
@@ -124,15 +123,19 @@ function calculateSensi(setup: PlayerSetup) {
   };
 }
 
-// --- SIMULADOR COM AIM ASSIST FÍSICO ---
+// --- SIMULADOR FÍSICO COM AIM ASSIST ---
 function PullUpSimulator({ onFeedback, onComplete }: { onFeedback: (msg: string) => void, onComplete: (coeff: number) => void }) {
   const [attempts, setAttempts] = useState(0);
   const [speeds, setSpeeds] = useState<number[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
+  const [startX, setStartX] = useState(0);
   const [startTime, setStartTime] = useState(0);
   
   const [crosshairY, setCrosshairY] = useState(0);
+  const [crosshairX, setCrosshairX] = useState(0);
+  const [liveStatus, setLiveStatus] = useState<{msg: string, color: string}>({msg: "PRONTO", color: "text-slate-500"});
+  
   const buttonRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -140,119 +143,155 @@ function PullUpSimulator({ onFeedback, onComplete }: { onFeedback: (msg: string)
     buttonRef.current?.setPointerCapture(e.pointerId);
     setIsDragging(true);
     setStartY(e.clientY);
+    setStartX(e.clientX);
     setStartTime(Date.now());
-    onFeedback(`Teste ${attempts + 1}/3: Suba o capa quebrando o Aim Assist!`);
+    setLiveStatus({msg: "ATIRANDO...", color: "text-orange-500"});
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
     const rawY = startY - e.clientY; 
+    const rawX = e.clientX - startX;
     const timeElapsed = Date.now() - startTime;
     const currentSpeed = rawY / Math.max(1, timeElapsed); 
     
     let renderY = 0;
+    let renderX = rawX + (Math.sin(timeElapsed / 20) * 15); // Recuo lateral base
 
-    if (rawY < 80) {
-      // Peito: Alta resistência, corta 60% do movimento
-      renderY = Math.max(0, rawY * 0.4); 
-    } else if (rawY >= 80 && rawY <= 160) {
-      // Cabeça: Magnetismo
-      if (currentSpeed > 2.0) {
-        renderY = rawY; // Rápido demais, passou direto
+    // O CORE DO FREE FIRE: Curva Não-Linear de Aim Assist
+    if (rawY < 120) {
+      // ZONA 1: Peito (Alta resistência). Mira sobe pouco.
+      renderY = Math.max(0, rawY * 0.35); 
+      setLiveStatus({msg: "GRUDOU NO PEITO", color: "text-cyan-500"});
+    } 
+    else if (rawY >= 120 && rawY <= 220) {
+      // ZONA 2: Cabeça. Verifica se quebrou o imã pela velocidade
+      if (currentSpeed > 2.8) {
+        renderY = rawY * 1.1; // Quebrou o imã
+        setLiveStatus({msg: "PINANDO CÉU", color: "text-red-500"});
       } else {
-        renderY = 120 + ((rawY - 120) * 0.1); // Gruda no centro (120)
+        // Cravou no capa! Magnetismo centraliza em Y=140
+        renderY = 140 + ((rawY - 170) * 0.1); 
+        renderX = renderX * 0.2; // Suaviza o recuo lateral
+        setLiveStatus({msg: "CAPA CRAVADO", color: "text-red-600 font-black drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]"});
       }
-    } else {
-      renderY = rawY; // Passou da cabeça
+    } 
+    else {
+      // ZONA 3: Pinada pós-cabeça
+      renderY = rawY * 1.2; 
+      setLiveStatus({msg: "PINOU LISO", color: "text-red-500"});
     }
 
     setCrosshairY(renderY);
+    setCrosshairX(renderX);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return;
     setIsDragging(false);
+    
     const finalRenderY = crosshairY;
+    const finalRenderX = crosshairX;
+    
     setCrosshairY(0);
+    setCrosshairX(0);
     buttonRef.current?.releasePointerCapture(e.pointerId);
 
     const rawY = startY - e.clientY;
     const timeTaken = Date.now() - startTime;
     
-    if (rawY < 20) {
-      onFeedback("⚠️ Sem força. O botão não subiu.");
+    if (rawY < 30) {
+      setLiveStatus({msg: "FALHOU", color: "text-slate-500"});
+      onFeedback("⚠️ Abortado. Você não subiu o botão.");
       return;
     }
 
     const speed = rawY / timeTaken;
     let msg = "";
 
-    if (finalRenderY < 60) {
-      msg = "❌ Grudou no peito. Puxe com mais explosão.";
-    } else if (finalRenderY >= 110 && finalRenderY <= 130) {
-      msg = "💀 CAPA! Aim Assist travou na cabeça.";
+    // Avaliação Final do Disparo
+    if (finalRenderY < 80) {
+      msg = "❌ Muito lento. A mira morreu no peito.";
+    } else if (finalRenderY >= 120 && finalRenderY <= 160 && Math.abs(finalRenderX) < 25) {
+      msg = "💀 FULL VERMELHO! Puxada perfeita.";
+    } else if (Math.abs(finalRenderX) >= 25) {
+      msg = "⚠ Subiu torto. Mira espalhou no ombro.";
     } else {
-      msg = "💨 Passou da cabeça. Faltou controle.";
+      msg = "💨 Força excessiva. A mira pinou pro céu.";
     }
 
     const newSpeeds = [...speeds, speed];
     setSpeeds(newSpeeds);
     setAttempts(a => a + 1);
+    setLiveStatus({msg: "AGUARDANDO", color: "text-slate-500"});
 
     if (newSpeeds.length === 3) {
       const avgSpeed = newSpeeds.reduce((a, b) => a + b, 0) / 3;
       
+      // Geração do coeficiente interligado
       let finalCoeff = 1.0;
-      if (avgSpeed > 1.8) finalCoeff = 0.82; 
-      else if (avgSpeed < 0.9) finalCoeff = 1.25; 
+      if (avgSpeed > 2.0) finalCoeff = 0.85; // Muito agressivo, diminui sensi
+      else if (avgSpeed < 1.1) finalCoeff = 1.20; // Muito lento, aumenta sensi
       else finalCoeff = 1.0; 
 
       onComplete(finalCoeff);
-      onFeedback(`🎯 MOTOR CALIBRADO! Perfil de arraste injetado.`);
+      onFeedback(`🎯 ANÁLISE COMPLETA! Física de arraste sincronizada.`);
     } else {
-      onFeedback(`${msg} Faltam ${3 - newSpeeds.length} testes.`);
+      onFeedback(`${msg} Faltam ${3 - newSpeeds.length} tentativas.`);
     }
   };
 
-  const reset = () => { setAttempts(0); setSpeeds([]); onComplete(1.0); onFeedback("Simulador reiniciado. Supere o recuo."); };
+  const reset = () => { setAttempts(0); setSpeeds([]); onComplete(1.0); onFeedback("Simulador zerado. Encaixe a mira."); };
 
   return (
-    <div className="relative w-full h-[320px] bg-[#0a0a0c] border border-slate-800 rounded-lg overflow-hidden touch-none mt-4 shadow-[inset_0_0_40px_rgba(0,0,0,1)] flex flex-col justify-end">
-      <div className="absolute bottom-[80px] left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none">
-        <div className="w-10 h-10 bg-red-500/10 border border-red-500 rounded-full flex items-center justify-center mb-1 shadow-[0_0_15px_rgba(255,0,0,0.3)]">
-          <span className="text-[9px] text-red-500 font-bold">HEAD</span>
+    <div className="relative w-full h-[360px] bg-[#0a0a0c] border border-slate-800 rounded-lg overflow-hidden touch-none mt-4 shadow-[inset_0_0_50px_rgba(0,0,0,1)] flex flex-col justify-end bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black">
+      
+      {/* HUD Live Status */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-black/60 px-4 py-1 rounded-full border border-slate-800 backdrop-blur-sm">
+        <span className={`text-[10px] font-mono tracking-widest transition-colors duration-200 ${liveStatus.color}`}>
+          {liveStatus.msg}
+        </span>
+      </div>
+
+      {/* BONECO 3D APROXIMADO (HITBOXES) */}
+      <div className="absolute bottom-[90px] left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-60">
+        <div className="w-12 h-14 bg-red-500/10 border-2 border-red-500/60 rounded-[40%] flex items-center justify-center mb-1 shadow-[0_0_20px_rgba(255,0,0,0.2)]">
+          <span className="text-[8px] text-red-500 font-bold opacity-50">HEAD</span>
         </div>
-        <div className="w-20 h-20 bg-cyan-900/20 border-t border-x border-cyan-800 rounded-t-2xl flex items-center justify-center shadow-[inset_0_5px_15px_rgba(0,0,0,0.5)]">
-          <span className="text-[9px] text-cyan-600 font-bold">CHEST</span>
+        <div className="w-6 h-4 bg-slate-700 rounded-sm"></div>
+        <div className="w-24 h-28 bg-cyan-900/20 border-t-2 border-x-2 border-cyan-800 rounded-t-[2rem] flex items-center justify-center shadow-[inset_0_10px_20px_rgba(0,0,0,0.6)]">
+          <span className="text-[10px] text-cyan-600 font-bold opacity-30">CHEST ASSIST</span>
         </div>
       </div>
       
+      {/* MIRA VISUAL (RECOIL APPLY) */}
       <div 
-        className="absolute bottom-[110px] left-1/2 -translate-x-1/2 text-white transition-transform duration-75 pointer-events-none z-20"
-        style={{ transform: `translate(0px, -${crosshairY}px)` }}
+        className="absolute bottom-[130px] left-1/2 -translate-x-1/2 text-white transition-transform duration-75 pointer-events-none z-30"
+        style={{ transform: `translate(${crosshairX}px, -${crosshairY}px)` }}
       >
-        <Crosshair size={32} className="drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" />
+        <Crosshair size={36} strokeWidth={1.5} className="drop-shadow-[0_0_6px_rgba(255,255,255,1)]" />
       </div>
 
+      {/* BOTÃO INTERATIVO */}
       <div 
         ref={buttonRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className={`relative z-30 mb-6 mx-auto w-14 h-14 rounded-full flex items-center justify-center select-none touch-none transition-colors ${attempts >= 3 ? 'bg-green-600' : 'bg-[#ff5a12] active:scale-90 cursor-grab active:cursor-grabbing shadow-[0_0_20px_rgba(255,90,18,0.4)]'}`}
+        className={`relative z-40 mb-6 mx-auto w-16 h-16 rounded-full flex items-center justify-center select-none touch-none transition-colors ${attempts >= 3 ? 'bg-green-600 shadow-[0_0_25px_rgba(22,163,74,0.5)]' : 'bg-[#ff5a12] shadow-[0_0_20px_rgba(255,90,18,0.5)] active:scale-90 cursor-grab active:cursor-grabbing'}`}
       >
-        {attempts >= 3 ? <ShieldCheck size={24} color="white" /> : <Target size={24} color="white" />}
+        {attempts >= 3 ? <ShieldCheck size={28} color="white" /> : <Target size={28} color="white" />}
       </div>
       
       {attempts >= 3 && (
-        <Button onClick={reset} variant="outline" className="absolute top-3 right-3 text-xs py-1 px-3 h-auto bg-slate-900 border-slate-700">Refazer</Button>
+        <Button onClick={reset} variant="outline" className="absolute top-4 right-4 text-xs py-1 px-3 h-auto bg-slate-900 border-slate-700 z-50">Resetar Teste</Button>
       )}
     </div>
   );
 }
 
-// --- COMPONENTE PRINCIPAL ---
+// --- COMPONENTE PRINCIPAL (INDEX) ---
 export default function Index() {
   const [lang, setLang] = useState<Lang>("pt");
   const [sound, setSound] = useState(true);
@@ -327,7 +366,7 @@ export default function Index() {
       }); 
       setComputedBtn(novaSensi.buttonSize);
       setScanning(false); 
-      notify("Matriz atualizada. Compensação de arraste aplicada!");
+      notify("Matriz atualizada com compensação de arraste 3D.");
     }, 800);
   };
 
@@ -406,8 +445,8 @@ export default function Index() {
           <SectionTitle icon={LocateFixed} tag="02 // HUD" title={t.fire} subtitle={t.fireSub} />
           
           <div style={{marginBottom: '1.5rem', paddingBottom: '1.5rem'}}>
-            <h3 style={{color: '#ff5a12', fontWeight: 'bold', marginBottom: '0.75rem', textTransform: 'uppercase', fontSize: '0.875rem', letterSpacing: '0.1em'}}><Crosshair size={14} style={{display: 'inline', marginRight: '0.5rem', position: 'relative', top: '-1px'}}/> Simulador de Capa (Motor Físico)</h3>
-            <p style={{fontSize: '0.75rem', color: '#707b82', marginBottom: '1rem', lineHeight: '1.4'}}>O atrito e a gravidade do peito tentarão travar sua mira. Puxe reto e rápido para encaixar o Aim Assist na cabeça.</p>
+            <h3 style={{color: '#ff5a12', fontWeight: 'bold', marginBottom: '0.75rem', textTransform: 'uppercase', fontSize: '0.875rem', letterSpacing: '0.1em'}}><Crosshair size={14} style={{display: 'inline', marginRight: '0.5rem', position: 'relative', top: '-1px'}}/> Simulador de Disparo em 3ª Pessoa</h3>
+            <p style={{fontSize: '0.75rem', color: '#707b82', marginBottom: '1rem', lineHeight: '1.4'}}>A gravidade do peito travará sua mira. Arraste com velocidade contínua para romper o magnetismo e cravar na cabeça.</p>
             <PullUpSimulator onFeedback={notify} onComplete={setDragCoeff} />
           </div>
 
