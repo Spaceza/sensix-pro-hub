@@ -3,7 +3,7 @@ import {
   Activity, BellRing, ChevronRight, Copy, Crosshair, Download,
   Gauge, Hand, Languages, LocateFixed, MousePointer2, Radar,
   RefreshCw, ScanLine, ShieldCheck, SlidersHorizontal, Sparkles,
-  Target, Volume2, VolumeX, Zap, BarChart3, Fingerprint, BrainCircuit
+  Target, Volume2, VolumeX, Zap, BarChart3, Fingerprint, BrainCircuit, Smartphone
 } from "lucide-react";
 import React, { useMemo, useRef, useState, useEffect } from "react";
 
