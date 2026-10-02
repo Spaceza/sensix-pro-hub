@@ -30,7 +30,8 @@ export function PullSimulator({ baseFire, onResult, buzz }: { baseFire: number; 
   const move = (e: React.PointerEvent) => {
     if (!dragging) return;
     const p = local(e);
-    const start = pts.current[0]!;
+    const start = pts.current[0];
+    if (!start) return;
     const n = pts.current.length;
     // recoil: random sideways kick grows with time; resistance damps vertical travel
     const kick = (Math.random() - 0.5) * Math.min(3, n * 0.05);
@@ -50,7 +51,8 @@ export function PullSimulator({ baseFire, onResult, buzz }: { baseFire: number; 
     const el = box.current;
     if (!el) return;
     const box_ = el.getBoundingClientRect();
-    const first = p[0]!, last = p[p.length - 1]!;
+    const first = p[0], last = p[p.length - 1];
+    if (!first || !last) return;
     const minY = Math.min(...p.map((q) => q.y));
     const dt = Math.max(1, last.t - first.t);
     const distPx = ((first.y - minY) / 100) * box_.height;
