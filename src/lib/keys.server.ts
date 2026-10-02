@@ -21,7 +21,7 @@ export function generateCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = randomBytes(16);
   let out = "";
-  for (let i = 0; i < 16; i++) out += alphabet[bytes[i]! % alphabet.length];
+  for (let i = 0; i < 16; i++) out += alphabet[(bytes[i] ?? 0) % alphabet.length];
   return `SX-${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8, 12)}-${out.slice(12, 16)}`;
 }
 

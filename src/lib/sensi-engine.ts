@@ -45,7 +45,7 @@ export interface EngineOutput {
 const clamp = (v: number, a = 0, b = 200) => Math.min(b, Math.max(a, Math.round(v)));
 
 export function compute(i: EngineInput): EngineOutput {
-  const brand = BRANDS.find((b) => b.id === i.brandId) ?? BRANDS[1]!;
+  const brand = BRANDS.find((b) => b.id === i.brandId) ?? { id: "samsung", label: "Samsung Galaxy", touch: 1, tier: "flagship" as const };
   const dpi = Math.min(1200, Math.max(120, i.dpi || 411));
   const resRatio = Math.max(0.5, Math.min(1.6, (i.resW || 1080) / 1080));
   const aspect = (i.resH || 2400) / (i.resW || 1080);
@@ -105,7 +105,7 @@ export const CPU_TIERS = [
 ];
 
 export function idealDpi(tierId: string, resW: number) {
-  const t = CPU_TIERS.find((c) => c.id === tierId) ?? CPU_TIERS[1]!;
+  const t = CPU_TIERS.find((c) => c.id === tierId) ?? { id: "sd7", label: "Snapdragon 7 / Dimensity 8000", min: 380, max: 500, hz: "180Hz" };
   if (t.id === "apple") return { text: "iOS não permite alterar DPI — ajuste a sensi pelo app.", hz: t.hz };
   const k = resW / 1080;
   return { text: `${Math.round(t.min * k)} – ${Math.round(t.max * k)} DPI`, hz: t.hz };

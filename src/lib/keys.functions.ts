@@ -21,6 +21,8 @@ async function requireAdmin(token: string) {
 }
 
 const tokenSchema = z.object({ token: z.string().min(10).max(2000) });
+const scalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const profileDataSchema = z.record(z.string(), scalarSchema);
 
 /** Login with a key. The admin key (stored as secret ADMIN_KEY) returns an admin session. */
 export const loginWithKey = createServerFn({ method: "POST" })
@@ -57,11 +59,16 @@ export const listProfiles = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { row, db } = await requireUser(data.token);
     const { data: rows } = await db.from("saved_profiles").select("id, name, data, created_at").eq("key_id", row.id).order("created_at", { ascending: false }).limit(50);
-    return (rows ?? []) as { id: string; name: string; data: Record<string, unknown>; created_at: string }[];
+    return (rows ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      data: profileDataSchema.parse(item.data),
+      created_at: item.created_at,
+    }));
   });
 
 export const saveProfile = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenSchema.extend({ name: z.string().trim().min(1).max(60), data: z.record(z.string(), z.any()) }).parse(d))
+  .inputValidator((d) => tokenSchema.extend({ name: z.string().trim().min(1).max(60), data: profileDataSchema }).parse(d))
   .handler(async ({ data }) => {
     const { row, db } = await requireUser(data.token);
     const { count } = await db.from("saved_profiles").select("id", { count: "exact", head: true }).eq("key_id", row.id);

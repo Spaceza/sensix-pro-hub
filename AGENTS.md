@@ -10,5 +10,5 @@
 <!-- LOVABLE:END -->
 
 ## SensiX Pro architecture
-- Keep the calibration experience as a single client-side dashboard at `/`; its tools share one live configuration and require no persistence.
+- Keep the calibration and key-admin experience at `/`; calibration tools share one live configuration, while access and saved profiles use Lovable Cloud through server functions.
 - Use semantic CSS tokens and shared HUD utility classes in `src/styles.css`; this keeps the cyber interface consistent and theme-safe.
