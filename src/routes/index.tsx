@@ -16,7 +16,6 @@ import {
   ScanLine,
   ShieldCheck,
   SlidersHorizontal,
-  Smartphone,
   Sparkles,
   Target,
   Volume2,
@@ -31,9 +30,6 @@ export const Route = createFileRoute("/")({
       { title: "SensiX Pro — Gerador de Sensibilidade Free Fire" },
       { name: "description", content: "Calibre sensibilidade, botão de tiro, toque, mira e DPI para seu dispositivo." },
       { property: "og:title", content: "SensiX Pro — Configuração competitiva Free Fire" },
-      { property: "og:description", content: "Um painel avançado para gerar e calibrar sua configuração de Free Fire." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Index,
@@ -43,12 +39,13 @@ type Lang = "pt" | "en";
 type Sensitivity = { geral: number; red: number; x2: number; x4: number; awm: number; free: number };
 type Toast = { id: number; text: string } | null;
 
-const devices = ["Xiaomi Redmi Note 13", "Samsung Galaxy S24", "Apple iPhone 15", "Motorola Edge 50", "Realme GT 6", "ASUS ROG Phone 8"];
+const devices = ["Xiaomi", "Samsung", "Apple", "Motorola", "Realme", "ASUS"];
+
 const labels = {
   pt: {
     online: "SISTEMA OPERACIONAL", tagline: "PRECISÃO SEM LIMITES", intro: "Seu centro de calibração competitiva para domínio total de mira, arraste e resposta.",
     generate: "GERAR CONFIGURAÇÃO", calibrate: "CALIBRAR TOQUE", profile: "BAIXAR PERFIL", sensi: "GERADOR DE SENSIBILIDADE", sensiSub: "Matriz adaptativa 0—200",
-    device: "Dispositivo", resolution: "Resolução / DPI", newCombo: "NOVA COMBINAÇÃO", copy: "COPIAR VALORES", copied: "Valores copiados para a área de transferência",
+    device: "Marca do Aparelho", resolution: "Resolução / DPI", newCombo: "NOVA COMBINAÇÃO", copy: "COPIAR VALORES", copied: "Valores copiados para a área de transferência",
     fire: "BOTÃO DE TIRO", fireSub: "Geometria de arraste", hand: "Tamanho da mão", swipe: "Estilo de puxada", small: "Pequena", medium: "Média", large: "Grande",
     fast: "Arraste rápido", curved: "Arraste curvo", straight: "Arraste reto", recommended: "Tamanho recomendado", zone: "ZONA DE ARRASTE IDEAL",
     touch: "CALIBRAÇÃO DE TOQUE", touchSub: "Teste de resposta em 3 pontos", begin: "INICIAR CALIBRAÇÃO", tap: "TOQUE NO ALVO", done: "MATRIZ OTIMIZADA", latency: "Latência média",
@@ -61,7 +58,7 @@ const labels = {
   en: {
     online: "SYSTEM OPERATIONAL", tagline: "PRECISION WITHOUT LIMITS", intro: "Your competitive calibration center for total aim, drag and response control.",
     generate: "GENERATE CONFIG", calibrate: "CALIBRATE TOUCH", profile: "DOWNLOAD PROFILE", sensi: "SENSITIVITY GENERATOR", sensiSub: "Adaptive 0—200 matrix",
-    device: "Device", resolution: "Resolution / DPI", newCombo: "NEW COMBINATION", copy: "COPY VALUES", copied: "Values copied to clipboard",
+    device: "Device Brand", resolution: "Resolution / DPI", newCombo: "NEW COMBINATION", copy: "COPY VALUES", copied: "Values copied to clipboard",
     fire: "FIRE BUTTON", fireSub: "Drag geometry", hand: "Hand size", swipe: "Swipe style", small: "Small", medium: "Medium", large: "Large",
     fast: "Fast drag", curved: "Curved drag", straight: "Straight drag", recommended: "Recommended size", zone: "OPTIMAL DRAG ZONE",
     touch: "TOUCH CALIBRATION", touchSub: "3-point response test", begin: "START CALIBRATION", tap: "TAP THE TARGET", done: "MATRIX OPTIMIZED", latency: "Average latency",
@@ -81,20 +78,21 @@ function SectionTitle({ icon: Icon, title, subtitle, tag }: { icon: React.Elemen
   return <div className="section-title"><div className="section-icon"><Icon size={18} /></div><div className="min-w-0"><p className="section-tag">{tag}</p><h2>{title}</h2><p>{subtitle}</p></div></div>;
 }
 
+// --- MOTOR MATEMÁTICO INTEGRADO ---
 interface PlayerSetup {
   brand: string;
   resX: number;
   resY: number;
   dpi: number;
-  buttonSize: number;
+  dragCoefficient: number;
 }
 
 function calculateSensi(setup: PlayerSetup) {
   let baseSensi = 100;
   
   const brandModifiers: Record<string, number> = {
-    'Apple iPhone 15': 0.85, 'ASUS ROG Phone 8': 0.90, 'Samsung Galaxy S24': 1.0, 
-    'Motorola Edge 50': 1.05, 'Xiaomi Redmi Note 13': 1.10, 'Realme GT 6': 1.15,
+    'Apple': 0.85, 'ASUS': 0.90, 'Samsung': 1.0, 
+    'Motorola': 1.05, 'Xiaomi': 1.10, 'Realme': 1.15,
   };
   baseSensi *= brandModifiers[setup.brand] || 1.0;
 
@@ -105,8 +103,14 @@ function calculateSensi(setup: PlayerSetup) {
   const dpiRatio = 411 / (setup.dpi || 411);
   let finalGeral = baseSensi * dpiRatio;
 
-  if (setup.buttonSize < 45) finalGeral *= 1.05;
-  if (setup.buttonSize > 60) finalGeral *= 0.95;
+  // Aplica o Coeficiente de Arraste extraído do simulador
+  finalGeral *= setup.dragCoefficient;
+
+  // Define o tamanho ideal do botão para contrabalancear o arraste
+  let idealBtn = 50;
+  if (setup.dragCoefficient < 0.9) idealBtn = 65; 
+  else if (setup.dragCoefficient > 1.1) idealBtn = 40; 
+  else idealBtn = 52; 
 
   finalGeral = Math.min(200, Math.max(0, Math.round(finalGeral)));
 
@@ -116,17 +120,19 @@ function calculateSensi(setup: PlayerSetup) {
     scope2x: Math.min(200, Math.round(finalGeral * 0.95)),
     scope4x: Math.min(200, Math.round(finalGeral * 0.88)),
     awm: Math.min(200, Math.round(finalGeral * 0.40)),
+    buttonSize: idealBtn
   };
 }
 
-function PullUpSimulator({ onFeedback, onComplete, jitterLevel }: { onFeedback: (msg: string) => void, onComplete: (btnSize: number) => void, jitterLevel: number }) {
+// --- SIMULADOR COM AIM ASSIST FÍSICO ---
+function PullUpSimulator({ onFeedback, onComplete }: { onFeedback: (msg: string) => void, onComplete: (coeff: number) => void }) {
   const [attempts, setAttempts] = useState(0);
   const [speeds, setSpeeds] = useState<number[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
   const [startTime, setStartTime] = useState(0);
+  
   const [crosshairY, setCrosshairY] = useState(0);
-  const [crosshairX, setCrosshairX] = useState(0);
   const buttonRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -135,64 +141,97 @@ function PullUpSimulator({ onFeedback, onComplete, jitterLevel }: { onFeedback: 
     setIsDragging(true);
     setStartY(e.clientY);
     setStartTime(Date.now());
-    onFeedback(`Teste ${attempts + 1}/3: Puxando mira...`);
+    onFeedback(`Teste ${attempts + 1}/3: Suba o capa quebrando o Aim Assist!`);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
-    const distance = Math.max(0, startY - e.clientY);
-    setCrosshairY(distance * 1.5);
-    const shake = (Math.random() - 0.5) * (jitterLevel / 2);
-    setCrosshairX(shake);
+    const rawY = startY - e.clientY; 
+    const timeElapsed = Date.now() - startTime;
+    const currentSpeed = rawY / Math.max(1, timeElapsed); 
+    
+    let renderY = 0;
+
+    if (rawY < 80) {
+      // Peito: Alta resistência, corta 60% do movimento
+      renderY = Math.max(0, rawY * 0.4); 
+    } else if (rawY >= 80 && rawY <= 160) {
+      // Cabeça: Magnetismo
+      if (currentSpeed > 2.0) {
+        renderY = rawY; // Rápido demais, passou direto
+      } else {
+        renderY = 120 + ((rawY - 120) * 0.1); // Gruda no centro (120)
+      }
+    } else {
+      renderY = rawY; // Passou da cabeça
+    }
+
+    setCrosshairY(renderY);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return;
     setIsDragging(false);
+    const finalRenderY = crosshairY;
     setCrosshairY(0);
-    setCrosshairX(0);
     buttonRef.current?.releasePointerCapture(e.pointerId);
 
-    const distance = startY - e.clientY;
+    const rawY = startY - e.clientY;
     const timeTaken = Date.now() - startTime;
     
-    if (distance < 50) {
-      onFeedback("⚠️ Puxada muito curta. Tente com mais força.");
+    if (rawY < 20) {
+      onFeedback("⚠️ Sem força. O botão não subiu.");
       return;
     }
 
-    const speed = distance / timeTaken;
+    const speed = rawY / timeTaken;
+    let msg = "";
+
+    if (finalRenderY < 60) {
+      msg = "❌ Grudou no peito. Puxe com mais explosão.";
+    } else if (finalRenderY >= 110 && finalRenderY <= 130) {
+      msg = "💀 CAPA! Aim Assist travou na cabeça.";
+    } else {
+      msg = "💨 Passou da cabeça. Faltou controle.";
+    }
+
     const newSpeeds = [...speeds, speed];
     setSpeeds(newSpeeds);
     setAttempts(a => a + 1);
 
     if (newSpeeds.length === 3) {
       const avgSpeed = newSpeeds.reduce((a, b) => a + b, 0) / 3;
-      let idealBtn = 50;
-      if (avgSpeed > 2.0) idealBtn = 62; 
-      else if (avgSpeed < 1.0) idealBtn = 42; 
       
-      onComplete(idealBtn);
-      onFeedback(`💀 CALIBRADO! Botão ideal: ${idealBtn}%. Ajuste salvo.`);
+      let finalCoeff = 1.0;
+      if (avgSpeed > 1.8) finalCoeff = 0.82; 
+      else if (avgSpeed < 0.9) finalCoeff = 1.25; 
+      else finalCoeff = 1.0; 
+
+      onComplete(finalCoeff);
+      onFeedback(`🎯 MOTOR CALIBRADO! Perfil de arraste injetado.`);
     } else {
-      if (speed > 2.5) onFeedback(`Passou da cabeça! Faltam ${3 - newSpeeds.length} testes.`);
-      else onFeedback(`Bom capa! Faltam ${3 - newSpeeds.length} testes.`);
+      onFeedback(`${msg} Faltam ${3 - newSpeeds.length} testes.`);
     }
   };
 
-  const reset = () => { setAttempts(0); setSpeeds([]); onComplete(50); onFeedback("Reiniciado. Puxe o botão novamente."); };
+  const reset = () => { setAttempts(0); setSpeeds([]); onComplete(1.0); onFeedback("Simulador reiniciado. Supere o recuo."); };
 
   return (
-    <div className="relative w-full h-72 bg-[#0a0a0c] border border-[#ff5a12]/30 rounded-lg overflow-hidden touch-none mt-4 shadow-[0_0_20px_rgba(0,0,0,0.8)]">
-      <div className="absolute top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-red-500/10 rounded-full border border-dashed border-red-500/50 flex items-center justify-center">
-        <span className="text-xs text-red-500 opacity-50">HEAD</span>
+    <div className="relative w-full h-[320px] bg-[#0a0a0c] border border-slate-800 rounded-lg overflow-hidden touch-none mt-4 shadow-[inset_0_0_40px_rgba(0,0,0,1)] flex flex-col justify-end">
+      <div className="absolute bottom-[80px] left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none">
+        <div className="w-10 h-10 bg-red-500/10 border border-red-500 rounded-full flex items-center justify-center mb-1 shadow-[0_0_15px_rgba(255,0,0,0.3)]">
+          <span className="text-[9px] text-red-500 font-bold">HEAD</span>
+        </div>
+        <div className="w-20 h-20 bg-cyan-900/20 border-t border-x border-cyan-800 rounded-t-2xl flex items-center justify-center shadow-[inset_0_5px_15px_rgba(0,0,0,0.5)]">
+          <span className="text-[9px] text-cyan-600 font-bold">CHEST</span>
+        </div>
       </div>
       
       <div 
-        className="absolute bottom-20 left-1/2 -translate-x-1/2 text-[#ff5a12] transition-transform duration-75"
-        style={{ transform: `translate(${crosshairX}px, -${crosshairY}px)` }}
+        className="absolute bottom-[110px] left-1/2 -translate-x-1/2 text-white transition-transform duration-75 pointer-events-none z-20"
+        style={{ transform: `translate(0px, -${crosshairY}px)` }}
       >
-        <Crosshair size={32} />
+        <Crosshair size={32} className="drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" />
       </div>
 
       <div 
@@ -201,35 +240,35 @@ function PullUpSimulator({ onFeedback, onComplete, jitterLevel }: { onFeedback: 
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className={`absolute bottom-4 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(255,90,18,0.5)] select-none touch-none transition-all ${attempts >= 3 ? 'bg-green-600' : 'bg-[#ff5a12] cursor-grab active:cursor-grabbing active:scale-95'}`}
+        className={`relative z-30 mb-6 mx-auto w-14 h-14 rounded-full flex items-center justify-center select-none touch-none transition-colors ${attempts >= 3 ? 'bg-green-600' : 'bg-[#ff5a12] active:scale-90 cursor-grab active:cursor-grabbing shadow-[0_0_20px_rgba(255,90,18,0.4)]'}`}
       >
         {attempts >= 3 ? <ShieldCheck size={24} color="white" /> : <Target size={24} color="white" />}
       </div>
       
       {attempts >= 3 && (
-        <Button onClick={reset} variant="outline" className="absolute top-2 right-2 text-xs py-1 px-3 h-auto">Refazer</Button>
+        <Button onClick={reset} variant="outline" className="absolute top-3 right-3 text-xs py-1 px-3 h-auto bg-slate-900 border-slate-700">Refazer</Button>
       )}
     </div>
   );
 }
 
-function Index() {
+// --- COMPONENTE PRINCIPAL ---
+export default function Index() {
   const [lang, setLang] = useState<Lang>("pt");
   const [sound, setSound] = useState(true);
-  const [device, setDevice] = useState(devices[0] ?? "Xiaomi Redmi Note 13");
+  const [device, setDevice] = useState(devices[0] ?? "Xiaomi");
   
-  // Novos estados integrados
   const [resX, setResX] = useState(1080);
   const [resY, setResY] = useState(2400);
   const [dpiNumber, setDpiNumber] = useState(411);
-  const [calibratedBtn, setCalibratedBtn] = useState(50);
+  const [dragCoeff, setDragCoeff] = useState(1.0);
+  const [computedBtn, setComputedBtn] = useState(50);
   const [isApplying, setIsApplying] = useState(false);
 
   const [sensi, setSensi] = useState<Sensitivity>({ geral: 192, red: 188, x2: 176, x4: 164, awm: 92, free: 148 });
   const [scanning, setScanning] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
-  const [hand, setHand] = useState(1);
-  const [swipe, setSwipe] = useState(0);
+  
   const [calStep, setCalStep] = useState(0);
   const [calStart, setCalStart] = useState(0);
   const [latencies, setLatencies] = useState<number[]>([]);
@@ -241,10 +280,10 @@ function Index() {
   const [delay, setDelay] = useState(180);
   const [convertDpi, setConvertDpi] = useState(411);
   const [tip, setTip] = useState(0);
+  
   const audioRef = useRef<AudioContext | null>(null);
   const t = labels[lang];
 
-  const buttonSize = calibratedBtn !== 50 ? calibratedBtn : 43 + hand * 5 + (swipe === 0 ? 3 : swipe === 1 ? 1 : -1);
   const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
   const recoilTightness = 52 - gyro * .2 - jitter * .16 + friction * .08;
   const targetPositions = [{ left: "20%", top: "62%" }, { left: "70%", top: "24%" }, { left: "55%", top: "68%" }];
@@ -262,7 +301,8 @@ function Index() {
     gain.gain.setValueAtTime(.045, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .1);
     osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .11);
   };
-  const notify = (text: string) => { setToast({ id: Date.now(), text }); window.setTimeout(() => setToast(null), 2400); };
+  
+  const notify = (text: string) => { setToast({ id: Date.now(), text }); window.setTimeout(() => setToast(null), 3000); };
   
   const generate = () => {
     buzz("generate"); 
@@ -274,7 +314,7 @@ function Index() {
         resX: resX,
         resY: resY,
         dpi: dpiNumber,
-        buttonSize: calibratedBtn
+        dragCoefficient: dragCoeff
       });
 
       setSensi({ 
@@ -285,8 +325,9 @@ function Index() {
         awm: novaSensi.awm, 
         free: Math.round(novaSensi.geral * 0.75) 
       }); 
+      setComputedBtn(novaSensi.buttonSize);
       setScanning(false); 
-      notify("Matriz atualizada com seus dados exatos!");
+      notify("Matriz atualizada. Compensação de arraste aplicada!");
     }, 800);
   };
 
@@ -294,14 +335,16 @@ function Index() {
     const text = `${t.general}: ${sensi.geral}\n${t.redDot}: ${sensi.red}\n2x: ${sensi.x2}\n4x: ${sensi.x4}\nAWM: ${sensi.awm}\n${t.peek}: ${sensi.free}`;
     await navigator.clipboard.writeText(text); buzz(); notify(t.copied);
   };
+  
   const startCalibration = () => { buzz("generate"); setLatencies([]); setCalStep(1); setCalStart(performance.now()); };
   const hitTarget = () => {
     buzz(); const now = performance.now(); setLatencies((p) => [...p, Math.round(now - calStart)]);
     if (calStep >= 3) setCalStep(4); else { setCalStep((p) => p + 1); setCalStart(now); }
   };
+  
   const downloadProfile = () => {
     buzz("generate");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#0a0a0c"/><path d="M0 580L1200 250" stroke="#192126"/><text x="70" y="100" fill="#ff5a12" font-family="Arial" font-weight="700" font-size="32">SENSIX PRO // CONFIG PROFILE</text><text x="70" y="155" fill="#9aa4aa" font-family="Arial" font-size="20">${device} · ${resX}x${resY} · ${dpiNumber} DPI · ${os}</text><text x="70" y="250" fill="#f5f7f8" font-family="Arial" font-size="30">GERAL ${sensi.geral}   RED DOT ${sensi.red}   2X ${sensi.x2}</text><text x="70" y="310" fill="#f5f7f8" font-family="Arial" font-size="30">4X ${sensi.x4}   AWM ${sensi.awm}   FREE LOOK ${sensi.free}</text><text x="70" y="410" fill="#38d9e6" font-family="Arial" font-size="26">FIRE BUTTON ${buttonSize}%   ·   POINTER ${pointer}/10   ·   ${convertDpi} DPI</text><rect x="70" y="535" width="270" height="5" fill="#ff5a12"/><text x="70" y="590" fill="#707b82" font-family="Arial" font-size="18">ANTI-LAG MATRIX // VERIFIED PROFILE</text></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#0a0a0c"/><path d="M0 580L1200 250" stroke="#192126"/><text x="70" y="100" fill="#ff5a12" font-family="Arial" font-weight="700" font-size="32">SENSIX PRO // CONFIG PROFILE</text><text x="70" y="155" fill="#9aa4aa" font-family="Arial" font-size="20">${device} · ${resX}x${resY} · ${dpiNumber} DPI · ${os}</text><text x="70" y="250" fill="#f5f7f8" font-family="Arial" font-size="30">GERAL ${sensi.geral}   RED DOT ${sensi.red}   2X ${sensi.x2}</text><text x="70" y="310" fill="#f5f7f8" font-family="Arial" font-size="30">4X ${sensi.x4}   AWM ${sensi.awm}   FREE LOOK ${sensi.free}</text><text x="70" y="410" fill="#38d9e6" font-family="Arial" font-size="26">FIRE BUTTON ${computedBtn}%   ·   POINTER ${pointer}/10   ·   ${convertDpi} DPI</text><rect x="70" y="535" width="270" height="5" fill="#ff5a12"/><text x="70" y="590" fill="#707b82" font-family="Arial" font-size="18">ANTI-LAG MATRIX // VERIFIED PROFILE</text></svg>`;
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })); const a = document.createElement("a"); a.href = url; a.download = "sensix-pro-profile.svg"; a.click(); URL.revokeObjectURL(url); notify(t.configReady);
   };
 
@@ -332,26 +375,25 @@ function Index() {
       <section id="sensitivity" className="panel sensitivity-panel">
         <SectionTitle icon={Crosshair} tag="01 // CORE" title={t.sensi} subtitle={t.sensiSub} />
         
-        {/* NOVOS INPUTS MANUAIS */}
         <div className="grid grid-cols-2 gap-4 mb-6" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem'}}>
           <label style={{gridColumn: 'span 2', display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>{t.device}
-            <select style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#fff'}} value={device} onChange={(e) => setDevice(e.target.value)}>
+            <select style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#fff', outline: 'none'}} value={device} onChange={(e) => setDevice(e.target.value)}>
               {devices.map((d) => <option key={d}>{d}</option>)}
             </select>
           </label>
-          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>Resolução (X e Y)
+          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>Resolução (X / Y)
             <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.25rem'}}>
-              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#fff'}} value={resX} onChange={e => setResX(Number(e.target.value))} />
-              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#fff'}} value={resY} onChange={e => setResY(Number(e.target.value))} />
+              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#fff', outline: 'none'}} value={resX} onChange={e => setResX(Number(e.target.value))} />
+              <input type="number" style={{width: '100%', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#fff', outline: 'none'}} value={resY} onChange={e => setResY(Number(e.target.value))} />
             </div>
           </label>
-          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>DPI Exata
-            <input type="number" style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.5rem', borderRadius: '4px', color: '#38d9e6', fontWeight: 'bold'}} value={dpiNumber} onChange={e => setDpiNumber(Number(e.target.value))} />
+          <label style={{display: 'block', fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.1em'}}>DPI Atual
+            <input type="number" style={{width: '100%', marginTop: '0.25rem', backgroundColor: '#111518', border: '1px solid #232c32', padding: '0.6rem', borderRadius: '4px', color: '#38d9e6', fontWeight: 'bold', outline: 'none'}} value={dpiNumber} onChange={e => setDpiNumber(Number(e.target.value))} />
           </label>
           
-          <div style={{gridColumn: 'span 2', backgroundColor: 'rgba(17,21,24,0.5)', padding: '0.75rem', borderRadius: '4px', border: '1px solid rgba(56,217,230,0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-            <span style={{fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase'}}>Botão de Tiro Motor:</span>
-            <span style={{color: '#38d9e6', fontFamily: 'monospace', fontWeight: 'bold'}}>{calibratedBtn}%</span>
+          <div style={{gridColumn: 'span 2', backgroundColor: 'rgba(17,21,24,0.6)', padding: '0.85rem', borderRadius: '4px', border: '1px solid rgba(56,217,230,0.4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <span style={{fontSize: '0.75rem', color: '#9aa4aa', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Botão de Tiro Calculado:</span>
+            <span style={{color: '#38d9e6', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '1.1rem'}}>{computedBtn}%</span>
           </div>
         </div>
 
@@ -362,14 +404,14 @@ function Index() {
       <div className="two-column">
         <section id="fire" className="panel">
           <SectionTitle icon={LocateFixed} tag="02 // HUD" title={t.fire} subtitle={t.fireSub} />
-          <div className="seg-group"><span>{t.hand}</span><div>{[t.small, t.medium, t.large].map((x, i) => <button className={hand === i ? "active" : ""} onClick={() => { setHand(i); buzz(); }} key={x}>{x}</button>)}</div></div>
-          <div className="seg-group"><span>{t.swipe}</span><div>{[t.fast, t.curved, t.straight].map((x, i) => <button className={swipe === i ? "active" : ""} onClick={() => { setSwipe(i); buzz(); }} key={x}>{x}</button>)}</div></div>
-          <div className="fire-result"><div className="phone-hud"><div className="drag-path" /><span className="fire-button" style={{ width: `${buttonSize * .85}px`, height: `${buttonSize * .85}px` }}><Target /></span><small>{t.zone}</small></div><div className="size-readout"><small>{t.recommended}</small><strong>{buttonSize}<sup>%</sup></strong><span><ShieldCheck size={15} /> {t.fireReady}</span></div></div>
           
-          <div style={{marginTop: '2rem', borderTop: '1px solid #232c32', paddingTop: '1.5rem'}}>
-            <h3 style={{color: '#ff5a12', fontWeight: 'bold', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.875rem', letterSpacing: '0.1em'}}><Crosshair size={14} style={{display: 'inline', marginRight: '0.5rem'}}/> Teste Prático de Puxada</h3>
-            <PullUpSimulator onFeedback={notify} onComplete={setCalibratedBtn} jitterLevel={jitter} />
+          <div style={{marginBottom: '1.5rem', paddingBottom: '1.5rem'}}>
+            <h3 style={{color: '#ff5a12', fontWeight: 'bold', marginBottom: '0.75rem', textTransform: 'uppercase', fontSize: '0.875rem', letterSpacing: '0.1em'}}><Crosshair size={14} style={{display: 'inline', marginRight: '0.5rem', position: 'relative', top: '-1px'}}/> Simulador de Capa (Motor Físico)</h3>
+            <p style={{fontSize: '0.75rem', color: '#707b82', marginBottom: '1rem', lineHeight: '1.4'}}>O atrito e a gravidade do peito tentarão travar sua mira. Puxe reto e rápido para encaixar o Aim Assist na cabeça.</p>
+            <PullUpSimulator onFeedback={notify} onComplete={setDragCoeff} />
           </div>
+
+          <div className="fire-result" style={{opacity: 0.8, filter: 'grayscale(0.5)'}}><div className="phone-hud"><div className="drag-path" /><span className="fire-button" style={{ width: `${computedBtn * 0.85}px`, height: `${computedBtn * 0.85}px` }}><Target /></span><small>{t.zone}</small></div><div className="size-readout"><small>{t.recommended} Motor</small><strong>{computedBtn}<sup>%</sup></strong><span><ShieldCheck size={15} /> {t.fireReady}</span></div></div>
         </section>
 
         <section id="calibration" className="panel">
@@ -396,22 +438,21 @@ function Index() {
         <div className="tuner-grid"><label><span>{t.pointer}<output>{pointer}/10</output></span><input type="range" min="1" max="10" value={pointer} onChange={(e) => setPointer(Number(e.target.value))} /></label><label><span>{t.delay}<output>{delay}ms</output></span><input type="range" min="80" max="500" step="10" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label><span>{t.converter}<output>{convertDpi}</output></span><input type="range" min="300" max="800" step="1" value={convertDpi} onChange={(e) => setConvertDpi(Number(e.target.value))} /></label></div>
         <div className="recommendation"><Sparkles size={18} /><div><b>{t.optimal}</b><span>{os === "Android" ? `DPI ${Math.max(360, convertDpi - 20)}–${convertDpi + 30} · Pointer ${pointer}` : `Touch ${Math.max(100, delay - 40)}–${delay}ms · 120Hz`}</span></div></div>
         
-        {/* BOTÃO ANIMADO DE APLICAR AJUSTES */}
-        <div style={{marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #232c32'}}>
+        <div style={{marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid #232c32'}}>
           <Button 
             className="w-full" 
-            style={{backgroundColor: isApplying ? '#232c32' : '#0891b2', transition: 'all 0.3s ease'}}
+            style={{backgroundColor: isApplying ? '#232c32' : '#0891b2', transition: 'all 0.3s ease', padding: '0.75rem'}}
             onClick={() => {
               setIsApplying(true);
               buzz("generate");
-              setTimeout(() => { setIsApplying(false); notify("Ajustes de Kernel e Ponteiro injetados com sucesso!"); }, 2500);
+              setTimeout(() => { setIsApplying(false); notify("Ajustes de Kernel e Ponteiro injetados com sucesso!"); }, 2800);
             }}
             disabled={isApplying}
           >
             {isApplying ? (
               <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}><RefreshCw className="spin" size={16}/> Sincronizando Matriz de Toque...</span>
             ) : (
-              <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}><Zap size={16}/> Aplicar Ajustes Finos</span>
+              <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold'}}><Zap size={16}/> Injetar Ajustes Finos no Sistema</span>
             )}
           </Button>
         </div>
@@ -423,7 +464,7 @@ function Index() {
         <div className="tip-content"><div className="tip-number">0{tip + 1}</div><div><small>PROTOCOL_{["DRAG", "SURFACE", "RENDER"][tip] ?? "DRAG"}</small><p>{[t.tip1, t.tip2, t.tip3][tip] ?? t.tip1}</p></div><Target size={25} /></div>
       </section>
 
-      <section className="export-band"><div><p>CONFIGURATION // READY</p><h2>{device}</h2><span>{resX}x{resY} · {buttonSize}% FIRE · {os}</span></div><Button onClick={downloadProfile}><Download size={18} />{t.profile}</Button></section>
+      <section className="export-band"><div><p>CONFIGURATION // READY</p><h2>{device}</h2><span>{resX}x{resY} · {computedBtn}% FIRE · {os}</span></div><Button onClick={downloadProfile}><Download size={18} />{t.profile}</Button></section>
       <footer><div className="brand-mini"><Crosshair size={18} /> SENSIX PRO</div><p>INDEPENDENT COMPETITIVE CALIBRATION TOOL</p><span>BUILD 4.8.2 // ONLINE</span></footer>
     </div>
     {toast && <div className="toast" key={toast.id}><ShieldCheck size={18} />{toast.text}</div>}
