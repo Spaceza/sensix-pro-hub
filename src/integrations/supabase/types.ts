@@ -14,7 +14,71 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      access_keys: {
+        Row: {
+          activated_at: string | null
+          code: string
+          created_at: string
+          duration: string
+          expires_at: string | null
+          id: string
+          note: string | null
+          revoked: boolean
+        }
+        Insert: {
+          activated_at?: string | null
+          code: string
+          created_at?: string
+          duration: string
+          expires_at?: string | null
+          id?: string
+          note?: string | null
+          revoked?: boolean
+        }
+        Update: {
+          activated_at?: string | null
+          code?: string
+          created_at?: string
+          duration?: string
+          expires_at?: string | null
+          id?: string
+          note?: string | null
+          revoked?: boolean
+        }
+        Relationships: []
+      }
+      saved_profiles: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          key_id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id?: string
+          key_id: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          key_id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saved_profiles_key_id_fkey"
+            columns: ["key_id"]
+            isOneToOne: false
+            referencedRelation: "access_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
