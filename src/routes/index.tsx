@@ -3,7 +3,7 @@ import {
   Activity, BellRing, ChevronRight, Copy, Crosshair, Download,
   Gauge, Hand, Languages, LocateFixed, MousePointer2, Radar,
   RefreshCw, ScanLine, ShieldCheck, SlidersHorizontal, Sparkles,
-  Target, Volume2, VolumeX, Zap, BarChart3, Fingerprint, BrainCircuit
+  Target, Volume2, VolumeX, Zap, BarChart3, Fingerprint, BrainCircuit, Smartphone
 } from "lucide-react";
 import React, { useMemo, useRef, useState, useEffect } from "react";
 
@@ -18,6 +18,14 @@ export const Route = createFileRoute("/")({
 });
 
 const devices = ["Xiaomi / POCO", "Samsung Galaxy", "Apple iPhone", "Motorola Edge", "Realme", "ASUS ROG"];
+
+type Lang = "pt" | "en";
+type Sensitivity = { geral: number; red: number; x2: number; x4: number; awm: number; free: number };
+type Toast = { id: number; text: string } | null;
+
+function Button({ children, variant = "primary", className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "outline" | "ghost" }) {
+  return <button className={`ui-button ui-button-${variant} ${className}`} {...props}>{children}</button>;
+}
 
 // --- MOTOR MATEMÁTICO INTEGRADO (V2.0) ---
 interface PlayerSetup {
@@ -76,7 +84,7 @@ function calculateSensi(setup: PlayerSetup) {
 }
 
 // --- MINIGAME 1: TESTE DE REFLEXO NEURAL (NOVO) ---
-function ReflexTest({ onComplete, buzz }: { onComplete: (ms: number) => void, buzz: (t: string) => void }) {
+function ReflexTest({ onComplete, buzz }: { onComplete: (ms: number) => void, buzz: (t: "tap" | "generate") => void }) {
   const [state, setState] = useState<"idle" | "waiting" | "ready" | "done">("idle");
   const [startTime, setStartTime] = useState(0);
   const [result, setResult] = useState(0);
@@ -267,7 +275,7 @@ export default function Index() {
   const [sound, setSound] = useState(true);
   
   // States Unificados da Central Neural
-  const [device, setDevice] = useState(devices[0]);
+  const [device, setDevice] = useState<string>(devices[0] ?? "Xiaomi / POCO");
   const [resX, setResX] = useState(1080);
   const [resY, setResY] = useState(2400);
   const [dpiNumber, setDpiNumber] = useState(411);
@@ -313,7 +321,7 @@ export default function Index() {
         brand: device, resX, resY, dpi: dpiNumber, 
         dragCoefficient: dragCoeff, reactionMs, usesSleeve
       });
-      setSensi(nova); 
+      setSensi({ geral: nova.geral, red: nova.redDot, x2: nova.scope2x, x4: nova.scope4x, awm: nova.awm, free: Math.min(200, Math.round(nova.geral * 0.8)), archetype: nova.archetype }); 
       setComputedBtn(nova.buttonSize);
       setScanning(false); 
       notify("Matriz SensiX processada com sucesso.");
