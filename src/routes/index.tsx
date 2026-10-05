@@ -1,65 +1,504 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, BarChart3, Check, Copy, Crosshair, Download, Gauge, Languages, LogOut, MonitorCog, Save, ShieldCheck, SlidersHorizontal, Smartphone, Target, Trash2, Volume2, VolumeX, Zap } from "lucide-react";
-import { AdminPanel } from "@/components/sensix/AdminPanel";
-import { AimLab, type TrainingResult } from "@/components/sensix/AimLab";
-import { KeyGate } from "@/components/sensix/KeyGate";
-import { checkSession, deleteProfile, listProfiles, saveProfile } from "@/lib/keys.functions";
-import { BRANDS, CPU_TIERS, RESOLUTIONS, compute, idealDpi, idealResolution, type EngineInput, type Mode, type Preference, type PullStyle } from "@/lib/sensi-engine";
-import { loadSession, storeSession, timeLeft, type Session } from "@/lib/session";
+import {
+  Activity, BellRing, ChevronRight, Copy, Crosshair, Download,
+  Gauge, Hand, Languages, LocateFixed, MousePointer2, Radar,
+  RefreshCw, ScanLine, ShieldCheck, SlidersHorizontal, Sparkles,
+  Target, Volume2, VolumeX, Zap, BarChart3, Fingerprint, BrainCircuit
+} from "lucide-react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 
 export const Route = createFileRoute("/")({
-  head: () => ({ meta: [
-    { title: "Free Fire Aim Lab & Hyper-Sensitivity Engine" },
-    { name: "description", content: "Laboratório de mira jogável com treino UMP, aim assist, sensibilidade, DPI e análise de puxada para Free Fire." },
-    { property: "og:title", content: "Free Fire Aim Lab & Hyper-Sensitivity Engine" },
-    { property: "og:description", content: "Treine a puxada de capa e calibre sensibilidade, DPI, FPS e botão de tiro com telemetria em tempo real." },
-    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" },
-  ] }), component: Index,
+  head: () => ({
+    meta: [
+      { title: "SensiX Pro — Laboratório de Performance Free Fire" },
+      { name: "description", content: "Calibração de reflexos, arraste e física de mira." },
+    ],
+  }),
+  component: Index,
 });
 
-type Profile = { id:string; name:string; data:Record<string,string|number|boolean|null>; created_at:string };
-const initial: EngineInput = { mode:"br", preference:"mid", brandId:"samsung", dpi:411, resW:1080, resH:2400, fireButton:50, pull:"linear", inputLag:2, touchDelay:80, fps:60, pointerSpeed:5, dragFactor:1 };
-const FPS = [30,45,60,90,120,144,240] as const;
+const devices = ["Xiaomi / POCO", "Samsung Galaxy", "Apple iPhone", "Motorola Edge", "Realme", "ASUS ROG"];
 
-function Index(){
-  const check=useServerFn(checkSession); const [session,setSession]=useState<Session|null>(null); const [ready,setReady]=useState(false);
-  useEffect(()=>{const saved=loadSession();if(!saved){setReady(true);return}void check({data:{token:saved.token}}).then(r=>{if(r.ok){const next={...saved,role:r.role,expiresAt:r.expiresAt,duration:r.duration};storeSession(next);setSession(next)}else storeSession(null)}).finally(()=>setReady(true))},[]);
-  if(!ready)return <div className="app-shell boot"><Activity className="spin"/><b>BOOTING AIM LAB CORE</b></div>;
-  if(!session)return <KeyGate onLogin={s=>{storeSession(s);setSession(s)}}/>;
-  return <div className="app-shell"><div className="hud-grid"/><Header session={session} logout={()=>{storeSession(null);setSession(null)}}/>{session.role==="admin"?<AdminPanel token={session.token}/>:<Dashboard session={session}/>}</div>;
+// --- MOTOR MATEMÁTICO INTEGRADO (V2.0) ---
+interface PlayerSetup {
+  brand: string;
+  resX: number;
+  resY: number;
+  dpi: number;
+  dragCoefficient: number;
+  reactionMs: number;
+  usesSleeve: boolean;
 }
 
-function Header({session,logout}:{session:Session;logout:()=>void}){return <header className="topbar"><div className="brand"><span className="brand-mark"><Crosshair/></span><div><strong>AIM LAB <span>// HX</span></strong><small>HYPER-SENSITIVITY ENGINE</small></div></div><div className="system-status"><span className="status-dot"/><div><b>ENGINE ONLINE</b><small>UMP BALLISTICS // READY</small></div></div><div className="header-actions"><span className="access-time">{session.role==="admin"?"ADMIN":timeLeft(session.expiresAt)}</span><button className="icon-action" onClick={logout} aria-label="Sair"><LogOut/></button></div></header>}
+function calculateSensi(setup: PlayerSetup) {
+  let baseSensi = 100;
+  
+  const brandModifiers: Record<string, number> = {
+    'Apple iPhone': 0.82, 'ASUS ROG': 0.88, 'Samsung Galaxy': 1.0, 
+    'Motorola Edge': 1.05, 'Xiaomi / POCO': 1.12, 'Realme': 1.15,
+  };
+  baseSensi *= brandModifiers[setup.brand] || 1.0;
 
-function Dashboard({session}:{session:Session}){
-  const saveFn=useServerFn(saveProfile),listFn=useServerFn(listProfiles),deleteFn=useServerFn(deleteProfile);
-  const [lang,setLang]=useState<"pt"|"en">("pt"),[sound,setSound]=useState(true),[input,setInput]=useState<EngineInput>(initial),[training,setTraining]=useState<TrainingResult|null>(null),[profiles,setProfiles]=useState<Profile[]>([]),[profileName,setProfileName]=useState("Build Aim Lab"),[toast,setToast]=useState(""),[cpu,setCpu]=useState("sd7");
-  const pageRef=useRef<HTMLElement>(null); const output=useMemo(()=>compute({...input,dragFactor:training?.factor??1,fireButton:training?.fireButton??input.fireButton}),[input,training]); const dpiRec=idealDpi(cpu,input.resW); const resolutionRec=idealResolution(cpu,input.fps);
-  const set=<K extends keyof EngineInput>(key:K,value:EngineInput[K])=>setInput(current=>({...current,[key]:value}));
-  const note=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2400)};
-  const loadProfiles=async()=>{try{setProfiles(await listFn({data:{token:session.token}}) as Profile[])}catch{note("Falha ao carregar perfis")}};
-  useEffect(()=>{void loadProfiles()},[]);
-  useEffect(()=>{const root=pageRef.current;if(!root)return;const reveal=new IntersectionObserver(entries=>entries.forEach(entry=>entry.target.classList.toggle("is-visible",entry.isIntersecting)),{threshold:.12});root.querySelectorAll(".reveal").forEach(el=>reveal.observe(el));const tilt=(event:PointerEvent)=>{const target=(event.target as HTMLElement).closest<HTMLElement>(".reactive-panel");if(!target)return;const r=target.getBoundingClientRect(),x=(event.clientX-r.left)/r.width,y=(event.clientY-r.top)/r.height;target.style.setProperty("--mx",`${x*100}%`);target.style.setProperty("--my",`${y*100}%`);target.style.setProperty("--rx",`${(0.5-y)*2.2}deg`);target.style.setProperty("--ry",`${(x-0.5)*2.2}deg`)};root.addEventListener("pointermove",tilt);return()=>{reveal.disconnect();root.removeEventListener("pointermove",tilt)}},[]);
-  const copy=async()=>{await navigator.clipboard.writeText(`Geral ${output.geral}\nRed Dot ${output.redDot}\n2X ${output.acog}\n4X ${output.x4}\nAWM ${output.awm}\nCâmera ${output.camera}\nBotão ${output.fireButton}%`);note("Configuração copiada")};
-  const save=async()=>{try{await saveFn({data:{token:session.token,name:profileName,data:{...input,trainingFactor:training?.factor??1,...output}}});await loadProfiles();note("Build salva") }catch{note("Não foi possível salvar")}};
-  const apply=(p:Profile)=>{setInput({...initial,mode:String(p.data.mode??"br") as Mode,preference:String(p.data.preference??"mid") as Preference,brandId:String(p.data.brandId??"samsung"),dpi:Number(p.data.dpi??411),resW:Number(p.data.resW??1080),resH:Number(p.data.resH??2400),fireButton:Number(p.data.fireButton??50),pull:String(p.data.pull??"linear") as PullStyle,inputLag:Number(p.data.inputLag??2),touchDelay:Number(p.data.touchDelay??80),fps:Number(p.data.fps??60) as EngineInput["fps"],pointerSpeed:Number(p.data.pointerSpeed??5),dragFactor:Number(p.data.dragFactor??1)});setTraining(null);note("Build aplicada")};
-  const exportCard=()=>{const safe=profileName.replace(/[<>&]/g,"");const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#07090b"/><text x="65" y="82" fill="#efc84a" font-size="24" font-family="sans-serif">FREE FIRE AIM LAB // ATHLETE BUILD</text><text x="65" y="137" fill="#edf8fa" font-size="38" font-family="sans-serif" font-weight="700">${safe}</text>${Object.entries({GERAL:output.geral,"RED DOT":output.redDot,"2X":output.acog,"4X":output.x4,AWM:output.awm,BOTÃO:output.fireButton+"%"}).map(([k,v],i)=>`<text x="${65+(i%3)*365}" y="${250+Math.floor(i/3)*180}" fill="#789096" font-size="18" font-family="sans-serif">${k}</text><text x="${65+(i%3)*365}" y="${325+Math.floor(i/3)*180}" fill="#f2fbfc" font-size="66" font-family="sans-serif" font-weight="700">${v}</text>`).join("")}<text x="65" y="625" fill="#789096" font-size="18" font-family="sans-serif">${input.dpi} DPI · ${input.fps} FPS · ${input.resW}×${input.resH}</text></svg>`;const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml"}));a.download="aim-lab-athlete-build.svg";a.click();URL.revokeObjectURL(a.href);note("Card exportado")};
-  return <main ref={pageRef} className={`sx-page aim-page theme-${input.preference}`} data-motion={input.preference}>
-    <section className="aim-hero reveal"><div className="hero-copy"><p className="eyebrow"><span/> FREE FIRE PERFORMANCE LAB // 04.7</p><h1>DOMINE O <em>PRIMEIRO TIRO.</em></h1><p>Treino balístico, leitura de hardware e sensibilidade adaptativa em uma única central competitiva.</p><div className="hero-actions"><button className="ui-button" onClick={()=>document.getElementById("lab")?.scrollIntoView()}><Target/> ENTRAR NA ARENA</button><button className="ui-button ui-button-outline" onClick={()=>document.getElementById("engine")?.scrollIntoView()}><SlidersHorizontal/> CALIBRAR HARDWARE</button></div></div><div className="hero-telemetry reactive-panel"><div className="scope-orbit"><Crosshair/><strong>{output.geral}</strong><small>GERAL / 200</small></div><div><span>AXIS X <b>{output.axisX}</b></span><span>AXIS Y <b>{output.axisY}</b></span><span>LATENCY <b>{Math.round(1000/input.fps+input.touchDelay)}ms</b></span></div></div></section>
-    <nav className="command-nav"><button onClick={()=>document.getElementById("lab")?.scrollIntoView()}><b>01</b><span>ARENA UMP</span></button><button onClick={()=>document.getElementById("engine")?.scrollIntoView()}><b>02</b><span>HYPER ENGINE</span></button><button onClick={()=>document.getElementById("analysis")?.scrollIntoView()}><b>03</b><span>DIAGNÓSTICO</span></button><button onClick={()=>document.getElementById("profiles")?.scrollIntoView()}><b>04</b><span>BUILDS</span></button><div className="nav-tools"><button onClick={()=>setLang(lang==="pt"?"en":"pt")} aria-label="Idioma"><Languages/></button><button onClick={()=>setSound(!sound)} aria-label="Som">{sound?<Volume2/>:<VolumeX/>}</button></div></nav>
-    <section id="lab" className="panel lab-panel reactive-panel reveal"><SectionTitle icon={<Target/>} kicker="PLAYABLE RANGE // UMP" title="SIMULADOR DE PUXADA DE CAPA" text="Segure em qualquer ponto da arena e arraste para cima. A mira vermelha indica o magnetismo no torso."/><AimLab sound={sound} baseFire={output.fireButton} onResult={setTraining}/></section>
-    <section id="engine" className="panel reactive-panel reveal"><SectionTitle icon={<MonitorCog/>} kicker="BIDIRECTIONAL CORE // LIVE" title="HYPER-SENSITIVITY ENGINE" text="Cada variável altera a escala dos eixos, latência percebida e recomendação final."/><div className="preference-switch"><button className={input.preference==="low"?"active":""} onClick={()=>set("preference","low")}><i/>BAIXA <small>CIRÚRGICA</small></button><button className={input.preference==="mid"?"active":""} onClick={()=>set("preference","mid")}><i/>MÉDIA <small>VERSÁTIL</small></button><button className={input.preference==="high"?"active":""} onClick={()=>set("preference","high")}><i/>ALTA <small>BRUTAL</small></button></div><div className="sx-form-grid">
-      <Field label="MODO"><select value={input.mode} onChange={e=>set("mode",e.target.value as Mode)}><option value="br">BR Rankeado</option><option value="cs">Apostado / 4v4</option><option value="x1">X1 / 1v1</option></select></Field><Field label="MARCA / MODELO"><select value={input.brandId} onChange={e=>set("brandId",e.target.value)}>{BRANDS.map(b=><option key={b.id} value={b.id}>{b.label}</option>)}</select></Field><Field label="MECÂNICA"><select value={input.pull} onChange={e=>set("pull",e.target.value as PullStyle)}><option value="linear">Linear</option><option value="short">Curta</option><option value="explosive">Explosiva</option></select></Field><Field label="RESOLUÇÃO"><select value={`${input.resW}x${input.resH}`} onChange={e=>{const [w,h]=e.target.value.split("x").map(Number);setInput(x=>({...x,resW:w||1080,resH:h||2400}))}}>{RESOLUTIONS.map(r=><option key={r.id} value={`${r.w}x${r.h}`}>{r.label}</option>)}</select></Field><Field label="DPI ATUAL"><input className="sx-input" type="number" min="120" max="1200" value={input.dpi} onChange={e=>set("dpi",Math.max(120,Math.min(1200,+e.target.value||120)))}/></Field><Field label="FPS"><select value={input.fps} onChange={e=>set("fps",Number(e.target.value) as EngineInput["fps"])}>{FPS.map(f=><option key={f} value={f}>{f} FPS</option>)}</select></Field><Range label="BOTÃO DE ATIRAR" value={training?.fireButton??input.fireButton} min={10} max={100} unit="%" onChange={v=>{set("fireButton",v);setTraining(null)}}/><Range label="VELOCIDADE DO PONTEIRO" value={input.pointerSpeed} min={1} max={10} unit="/10" onChange={v=>set("pointerSpeed",v)}/><Range label="INPUT LAG PERCEBIDO" value={input.inputLag} min={0} max={10} unit="/10" onChange={v=>set("inputLag",v)}/><Range label="ATRASO DE TOQUE" value={input.touchDelay} min={0} max={200} step={5} unit="ms" onChange={v=>set("touchDelay",v)}/>
-    </div></section>
-    <section id="analysis" className="result-panel reactive-panel reveal"><div className="result-head"><div><p>OUTPUT // TRAINING-SYNCED</p><h2>CONFIGURAÇÃO DE COMBATE</h2></div><div className="result-actions"><button className="ui-button ui-button-outline" onClick={copy}><Copy/> COPIAR</button><button className="ui-button" onClick={save}><Save/> SALVAR BUILD</button></div></div><div className="sensi-output">{[["GERAL",output.geral],["RED DOT",output.redDot],["ACOG / 2X",output.acog],["MIRA 4X",output.x4],["AWM",output.awm],["CÂMERA",output.camera]].map(([key,value])=><div className="sensi-stat" key={key}><span>{key}</span><strong>{value}</strong><div><i style={{width:`${Number(value)/2}%`}}/></div></div>)}</div><div className="analysis-grid"><article><Smartphone/><div><small>DPI IDEAL</small><strong>{dpiRec.text}</strong><span>Sampling alvo: {dpiRec.hz}</span></div></article><article><MonitorCog/><div><small>RESOLUÇÃO IDEAL</small><strong>{resolutionRec}</strong><span>Baseada em {input.fps} FPS e classe do processador</span></div></article><article><Gauge/><div><small>BOTÃO RECOMENDADO</small><strong>{output.fireButton}%</strong><span>{training?"Ajustado pela sua puxada real":"Estimativa inicial do hardware"}</span></div></article></div><div className="processor-row"><label>CLASSE DO PROCESSADOR<select value={cpu} onChange={e=>setCpu(e.target.value)}>{CPU_TIERS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select></label>{output.factors.map(f=><span key={f.label}>{f.label}<b>{f.value}</b></span>)}</div></section>
-    <section id="profiles" className="panel reactive-panel reveal"><SectionTitle icon={<BarChart3/>} kicker="CLOUD LOADOUTS" title="BUILDS DE ATLETA" text="Salve, compare e aplique suas calibrações competitivas."/><div className="profile-create"><input className="sx-input" maxLength={60} value={profileName} onChange={e=>setProfileName(e.target.value)} aria-label="Nome da build"/><button className="ui-button" onClick={save}><Save/> SALVAR</button><button className="ui-button ui-button-outline" onClick={exportCard}><Download/> CARD</button></div><div className="profile-grid">{profiles.length===0?<p className="empty-state">Nenhuma build salva.</p>:profiles.map(p=><article className="profile-card" key={p.id}><small>{new Date(p.created_at).toLocaleDateString("pt-BR")}</small><h3>{p.name}</h3><div className="profile-numbers"><span>GERAL <b>{p.data.geral??"—"}</b></span><span>RED DOT <b>{p.data.redDot??"—"}</b></span><span>BOTÃO <b>{p.data.fireButton??"—"}%</b></span></div><div className="profile-actions"><button onClick={()=>apply(p)}>APLICAR</button><button aria-label="Excluir build" onClick={async()=>{await deleteFn({data:{token:session.token,id:p.id}});await loadProfiles()}}><Trash2/></button></div></article>)}</div></section>
-    <section className="training-protocol reveal"><div><p>ADAPTIVE COACH</p><h2>PROTOCOLO DE ESTABILIDADE</h2></div><article><Zap/><b>OVERFLICK</b><span>{training&&training.factor<.9?"Detectado: reduza 12% e aumente o botão.":"Faça 3 séries de 15 puxadas controladas."}</span></article><article><Crosshair/><b>HEAD CONTROL</b><span>Mantenha a retícula na cabeça por 180ms antes de soltar.</span></article><article><ShieldCheck/><b>FRAME PACING</b><span>Priorize FPS estável; picos prejudicam mais que resolução baixa.</span></article></section>
-    <footer><div className="brand-mini"><Crosshair/> AIM LAB // HX</div><p>CALIBRAÇÃO COMPETITIVA — RESULTADOS VARIAM POR APARELHO E MECÂNICA</p><ShieldCheck/></footer>{toast&&<div className="toast"><Check/>{toast}</div>}
+  // Ajuste por densidade e Dedeira (Dedeira deixa liso, exige menos sensi pra não pinar)
+  const totalPixels = setup.resX * setup.resY;
+  if (totalPixels > 3000000) baseSensi *= 0.90;
+  if (setup.usesSleeve) baseSensi *= 0.88;
+
+  const dpiRatio = 411 / (setup.dpi || 411);
+  let finalGeral = baseSensi * dpiRatio;
+
+  // Impacto do Reflexo (Reaction Time) e Arraste
+  // Reflexo rápido (< 250ms) = Consegue domar sensi alta. Reflexo lento = Sensi menor pra focar precisão.
+  const reflexBonus = setup.reactionMs < 250 ? 1.15 : (setup.reactionMs > 350 ? 0.90 : 1.0);
+  
+  finalGeral *= setup.dragCoefficient * reflexBonus;
+
+  // Definição de Arquétipo
+  let archetype = "VERSÁTIL";
+  if (setup.reactionMs < 260 && setup.dragCoefficient < 0.95) archetype = "RUSHADOR FRENÉTICO";
+  else if (setup.reactionMs > 320 && setup.dragCoefficient > 1.05) archetype = "SNIPER / SUPORTE";
+  else if (setup.usesSleeve && setup.dragCoefficient < 1.0) archetype = "FRAGGER MECÂNICO";
+
+  let idealBtn = 50;
+  if (setup.dragCoefficient < 0.9) idealBtn = 64; 
+  else if (setup.dragCoefficient > 1.1) idealBtn = 40; 
+  else idealBtn = 52; 
+
+  return {
+    geral: Math.min(200, Math.max(0, Math.round(finalGeral))),
+    redDot: Math.min(200, Math.round(finalGeral * 1.08)), // Um pouco mais solta no novo meta
+    scope2x: Math.min(200, Math.round(finalGeral * (archetype.includes("RUSH") ? 0.90 : 0.98))),
+    scope4x: Math.min(200, Math.round(finalGeral * (archetype.includes("SNIPER") ? 0.95 : 0.85))),
+    awm: Math.min(200, Math.round(finalGeral * 0.45)),
+    buttonSize: idealBtn,
+    archetype
+  };
+}
+
+// --- MINIGAME 1: TESTE DE REFLEXO NEURAL (NOVO) ---
+function ReflexTest({ onComplete, buzz }: { onComplete: (ms: number) => void, buzz: (t: string) => void }) {
+  const [state, setState] = useState<"idle" | "waiting" | "ready" | "done">("idle");
+  const [startTime, setStartTime] = useState(0);
+  const [result, setResult] = useState(0);
+  const timeoutRef = useRef<number | null>(null);
+
+  const startTest = () => {
+    buzz("tap");
+    setState("waiting");
+    const delay = 1500 + Math.random() * 3000; // Tempo aleatório
+    timeoutRef.current = window.setTimeout(() => {
+      setState("ready");
+      setStartTime(Date.now());
+      buzz("generate"); // Som agudo pra atirar
+    }, delay);
+  };
+
+  const handleTap = () => {
+    if (state === "waiting") {
+      clearTimeout(timeoutRef.current!);
+      setState("idle");
+      alert("Apressado! Você atirou antes da hora. Tente de novo.");
+    } else if (state === "ready") {
+      const ms = Date.now() - startTime;
+      setResult(ms);
+      setState("done");
+      onComplete(ms);
+      buzz("tap");
+    }
+  };
+
+  return (
+    <div className="relative w-full h-32 bg-black border-2 border-slate-800 rounded-lg overflow-hidden flex flex-col items-center justify-center cursor-pointer select-none transition-colors duration-200"
+         onClick={state === "idle" || state === "done" ? startTest : handleTap}
+         style={{
+           backgroundColor: state === "ready" ? "#16a34a" : state === "waiting" ? "#b91c1c" : "#0f172a",
+           borderColor: state === "ready" ? "#4ade80" : "#1e293b"
+         }}>
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none"></div>
+      
+      {state === "idle" && <><BrainCircuit size={32} className="text-cyan-500 mb-2 animate-pulse" /><span className="text-cyan-400 font-bold tracking-widest text-sm">INICIAR TESTE NEURAL</span><span className="text-[10px] text-slate-500 mt-1">Toque quando ficar verde</span></>}
+      {state === "waiting" && <span className="text-red-300 font-black tracking-widest text-xl animate-pulse">AGUARDE...</span>}
+      {state === "ready" && <span className="text-white font-black tracking-widest text-3xl drop-shadow-md">ATIRE!</span>}
+      {state === "done" && (
+        <div className="text-center z-10">
+          <span className="block text-[10px] text-slate-400">TEMPO DE REAÇÃO</span>
+          <strong className="text-3xl text-cyan-400 font-black">{result} <span className="text-sm">ms</span></strong>
+          <span className="block text-[10px] text-slate-500 mt-2">Toque para refazer</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- MINIGAME 2: SIMULADOR FÍSICO COM AIM ASSIST (REMASTERIZADO) ---
+function PullUpSimulator({ onFeedback, onComplete, usesSleeve }: { onFeedback: (msg: string) => void, onComplete: (coeff: number, btn: number) => void, usesSleeve: boolean }) {
+  // ... (Mesma lógica robusta do minigame anterior, com ajustes visuais)
+  const [attempts, setAttempts] = useState(0);
+  const [metrics, setMetrics] = useState<{speed: number, deviation: number}[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startY, setStartY] = useState(0);
+  const [startX, setStartX] = useState(0);
+  const [startTime, setStartTime] = useState(0);
+  const [crosshairY, setCrosshairY] = useState(0);
+  const [crosshairX, setCrosshairX] = useState(0);
+  const [liveStatus, setLiveStatus] = useState<{msg: string, color: string}>({msg: "SCANNING", color: "text-cyan-700"});
+  const buttonRef = useRef<HTMLDivElement>(null);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (attempts >= 3) return;
+    buttonRef.current?.setPointerCapture(e.pointerId);
+    setIsDragging(true); setStartY(e.clientY); setStartX(e.clientX); setStartTime(Date.now());
+    setLiveStatus({msg: "TRACKING...", color: "text-orange-500"});
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    const rawY = startY - e.clientY; 
+    const rawX = e.clientX - startX;
+    const timeElapsed = Date.now() - startTime;
+    const currentSpeed = rawY / Math.max(1, timeElapsed); 
+    
+    let renderY = 0; let renderX = rawX; 
+    const frictionBase = usesSleeve ? 0.6 : 0.35; // Dedeira escorrega mais fácil no peito
+
+    if (rawY < 140) {
+      renderY = Math.max(0, rawY * frictionBase); 
+      setLiveStatus({msg: "MAGNETISMO: PEITO", color: "text-cyan-500"});
+    } else if (rawY >= 140 && rawY <= 240) {
+      if (currentSpeed > 3.2) {
+        renderY = rawY * 1.15; setLiveStatus({msg: "ALERTA: OVERFLICK", color: "text-red-500"});
+      } else {
+        renderY = 160 + ((rawY - 180) * 0.15); 
+        renderX = rawX * 0.3; 
+        setLiveStatus({msg: "LOCK-ON: HEADSHOT", color: "text-red-500 font-black drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]"});
+      }
+    } else {
+      renderY = rawY * 1.2; setLiveStatus({msg: "ALERTA: RECOIL LOSS", color: "text-red-500"});
+    }
+    setCrosshairY(renderY); setCrosshairX(renderX);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    const finalRenderX = crosshairX;
+    setCrosshairY(0); setCrosshairX(0);
+    buttonRef.current?.releasePointerCapture(e.pointerId);
+
+    const rawY = startY - e.clientY;
+    const timeTaken = Date.now() - startTime;
+    if (rawY < 30) { setLiveStatus({msg: "ABORTADO", color: "text-slate-500"}); return; }
+
+    const speed = rawY / timeTaken;
+    const deviation = Math.abs(finalRenderX);
+    const newMetrics = [...metrics, { speed, deviation }];
+    setMetrics(newMetrics);
+    
+    const currentAttempt = attempts + 1;
+    setAttempts(currentAttempt);
+
+    if (currentAttempt >= 3) {
+      const avgSpeed = newMetrics.reduce((a, b) => a + b.speed, 0) / 3;
+      const avgDev = newMetrics.reduce((a, b) => a + b.deviation, 0) / 3;
+      
+      let coeff = 1.0;
+      if (avgSpeed > 2.5) coeff = 0.85; else if (avgSpeed < 1.2) coeff = 1.20;
+      let btn = 52;
+      if (avgDev > 35) btn = 64; else if (avgSpeed > 2.5) btn = 58; else if (avgSpeed < 1.2) btn = 44;
+      
+      onComplete(coeff, btn);
+      setLiveStatus({msg: "ANÁLISE COMPLETA", color: "text-green-400 font-bold"});
+    } else {
+      setLiveStatus({msg: `DADOS COLETADOS [${currentAttempt}/3]`, color: "text-slate-400"});
+    }
+  };
+
+  return (
+    <div className="relative w-full h-[350px] bg-black border border-slate-800/80 rounded-lg overflow-hidden touch-none mt-4 shadow-[inset_0_0_60px_rgba(8,145,178,0.15)] flex flex-col justify-end">
+      {/* Grid Background Cyberpunk */}
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
+      
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40">
+        <span className={`text-[10px] font-mono tracking-widest transition-colors duration-200 ${liveStatus.color} bg-black/80 border border-slate-800 px-3 py-1 rounded backdrop-blur-sm shadow-[0_0_10px_rgba(0,0,0,0.5)]`}>
+          {liveStatus.msg}
+        </span>
+      </div>
+
+      <div className="absolute bottom-[90px] left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-60">
+        <div className="w-12 h-14 bg-red-500/10 border border-red-500/80 rounded-[45%] flex items-center justify-center mb-1 shadow-[0_0_20px_rgba(255,0,0,0.4)]">
+          <Crosshair size={14} className="text-red-500 opacity-50" />
+        </div>
+        <div className="w-5 h-4 bg-slate-800 rounded-sm"></div>
+        <div className="w-28 h-32 bg-gradient-to-b from-cyan-900/30 to-transparent border-t border-cyan-700/50 rounded-t-[2.5rem] flex items-center justify-center">
+          <div className="w-16 h-16 border border-cyan-800/30 rounded-full flex items-center justify-center">
+            <span className="text-[8px] text-cyan-500 font-mono opacity-40">GRAVITY WELL</span>
+          </div>
+        </div>
+      </div>
+      
+      <div 
+        className="absolute bottom-[130px] left-1/2 -translate-x-1/2 text-cyan-400 transition-transform duration-75 pointer-events-none z-30 mix-blend-screen"
+        style={{ transform: `translate(${crosshairX}px, -${crosshairY}px)` }}
+      >
+        <LocateFixed size={40} strokeWidth={1} className="drop-shadow-[0_0_10px_rgba(34,211,238,1)]" />
+      </div>
+
+      <div 
+        ref={buttonRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className={`relative z-40 mb-8 mx-auto w-16 h-16 rounded-full flex items-center justify-center select-none touch-none transition-colors border-2 ${attempts >= 3 ? 'bg-cyan-900 border-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.4)]' : 'bg-[#ff5a12] border-orange-400 shadow-[0_0_30px_rgba(255,90,18,0.5)] active:scale-90 cursor-grab active:cursor-grabbing'}`}
+      >
+        {attempts >= 3 ? <Activity size={26} color="#22d3ee" /> : <Fingerprint size={28} color="white" />}
+      </div>
+      
+      {attempts >= 3 && (
+        <Button onClick={() => { setAttempts(0); setMetrics([]); onComplete(1.0, 50); }} variant="outline" className="absolute top-4 right-4 text-[10px] py-1 px-3 h-auto bg-black/80 border-slate-700 text-slate-400 z-50">REBOOT</Button>
+      )}
+    </div>
+  );
+}
+
+// --- COMPONENTE PRINCIPAL (INDEX) ---
+export default function Index() {
+  const [lang, setLang] = useState<Lang>("pt");
+  const [sound, setSound] = useState(true);
+  
+  // States Unificados da Central Neural
+  const [device, setDevice] = useState(devices[0]);
+  const [resX, setResX] = useState(1080);
+  const [resY, setResY] = useState(2400);
+  const [dpiNumber, setDpiNumber] = useState(411);
+  const [usesSleeve, setUsesSleeve] = useState(false); // Dedeira Gamer
+  
+  const [reactionMs, setReactionMs] = useState(300); // Reflexo default
+  const [dragCoeff, setDragCoeff] = useState(1.0);
+  const [computedBtn, setComputedBtn] = useState(50);
+  
+  const [sensi, setSensi] = useState<Sensitivity & { archetype?: string }>({ geral: 192, red: 188, x2: 176, x4: 164, awm: 92, free: 148, archetype: "NÃO CALIBRADO" });
+  const [isBooting, setIsBooting] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [toast, setToast] = useState<Toast>(null);
+  const audioRef = useRef<AudioContext | null>(null);
+
+  // Efeito de Boot inicial Cyberpunk
+  useEffect(() => {
+    setTimeout(() => setIsBooting(false), 2000);
+  }, []);
+
+  const buzz = (kind: "tap" | "generate" = "tap") => {
+    if (navigator.vibrate) navigator.vibrate(kind === "generate" ? [30, 40, 50] : 15);
+    if (!sound) return;
+    const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = audioRef.current ?? new AudioCtx(); audioRef.current = ctx;
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = kind === "generate" ? "square" : "sine";
+    osc.frequency.setValueAtTime(kind === "generate" ? 120 : 600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(kind === "generate" ? 800 : 300, ctx.currentTime + .1);
+    gain.gain.setValueAtTime(.05, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .1);
+    osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .15);
+  };
+  
+  const notify = (text: string) => { setToast({ id: Date.now(), text }); window.setTimeout(() => setToast(null), 3000); };
+  
+  const generate = () => {
+    buzz("generate"); 
+    setScanning(true);
+    
+    window.setTimeout(() => { 
+      const nova = calculateSensi({
+        brand: device, resX, resY, dpi: dpiNumber, 
+        dragCoefficient: dragCoeff, reactionMs, usesSleeve
+      });
+      setSensi(nova); 
+      setComputedBtn(nova.buttonSize);
+      setScanning(false); 
+      notify("Matriz SensiX processada com sucesso.");
+    }, 1200);
+  };
+
+  const copyValues = async () => {
+    const text = `ARQUÉTIPO: ${sensi.archetype}\nGeral: ${sensi.geral}\nRed Dot: ${sensi.red}\n2x: ${sensi.x2}\n4x: ${sensi.x4}\nAWM: ${sensi.awm}\nOlhadinha: ${sensi.free}\nBotão: ${computedBtn}%`;
+    await navigator.clipboard.writeText(text); buzz(); notify("Copiado para área de transferência.");
+  };
+
+  if (isBooting) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center font-mono text-cyan-500">
+        <Activity size={48} className="animate-pulse mb-4" />
+        <h1 className="text-2xl font-black tracking-[0.3em] glitch" data-text="SENSIX PRO">SENSIX PRO</h1>
+        <p className="mt-2 text-xs opacity-50">INITIALIZING NEURAL LINK...</p>
+        <div className="w-48 h-1 bg-slate-800 mt-4 overflow-hidden rounded"><div className="h-full bg-cyan-500 animate-[pulse_1s_infinite] w-full origin-left scale-x-0 transition-transform duration-1000" style={{transform: 'scaleX(1)'}}></div></div>
+      </div>
+    );
+  }
+
+  return <main className="min-h-screen bg-[#050508] text-slate-300 font-sans selection:bg-cyan-900 selection:text-cyan-100 pb-20">
+    <style>{`
+      .glitch { position: relative; }
+      .glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+      .glitch::before { left: 2px; text-shadow: -1px 0 red; clip: rect(24px, 550px, 90px, 0); animation: glitch-anim 3s infinite linear alternate-reverse; }
+      .glitch::after { left: -2px; text-shadow: -1px 0 blue; clip: rect(85px, 550px, 140px, 0); animation: glitch-anim 2.5s infinite linear alternate-reverse; }
+      @keyframes glitch-anim { 0% { clip: rect(20px, 9999px, 86px, 0); } 100% { clip: rect(67px, 9999px, 14px, 0); } }
+      .scanlines { background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1)); background-size: 100% 4px; position: absolute; inset: 0; pointer-events: none; z-index: 50; opacity: 0.3; }
+      .cyber-panel { background: rgba(10, 12, 16, 0.8); border: 1px solid rgba(8, 145, 178, 0.3); box-shadow: inset 0 0 20px rgba(0,0,0,0.8); backdrop-filter: blur(8px); }
+    `}</style>
+    
+    <div className="scanlines" />
+
+    {/* Header Cyber */}
+    <header className="sticky top-0 z-40 bg-black/90 border-b border-cyan-900/50 backdrop-blur-md px-4 py-3 flex justify-between items-center shadow-[0_4px_30px_rgba(8,145,178,0.1)]">
+      <div className="flex items-center gap-2">
+        <BrainCircuit className="text-cyan-500" size={24} />
+        <span className="font-black tracking-widest text-white text-lg">SENSI<span className="text-cyan-500">X</span></span>
+      </div>
+      <div className="flex items-center gap-4 text-xs font-mono">
+        <span className="flex items-center gap-1 text-green-400"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" /> ONLINE</span>
+        <button onClick={() => setSound(!sound)} className="text-slate-400 hover:text-white transition-colors">{sound ? <Volume2 size={16}/> : <VolumeX size={16}/>}</button>
+      </div>
+    </header>
+
+    <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6 mt-4">
+      
+      {/* Hero Section */}
+      <div className="text-center mb-8 relative">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-cyan-600/20 blur-[50px] pointer-events-none rounded-full" />
+        <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-2 uppercase">Laboratório de <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">Performance</span></h1>
+        <p className="text-slate-400 text-sm md:text-base font-mono">CALIBRAÇÃO MECÂNICA E NEURAL PARA FPS MOBILE</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* COLUNA 1: COLETA DE DADOS */}
+        <div className="space-y-6">
+          <section className="cyber-panel p-5 rounded-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500" />
+            <h2 className="text-cyan-400 font-black tracking-widest text-sm mb-4 flex items-center gap-2"><Smartphone size={16}/> ESPECIFICAÇÕES DO HARDWARE</h2>
+            
+            <div className="space-y-4">
+              <label className="block">
+                <span className="text-[10px] text-slate-500 font-mono">MARCA DO SISTEMA</span>
+                <select className="w-full mt-1 bg-black border border-slate-800 p-2.5 rounded text-white text-sm outline-none focus:border-cyan-500 transition-colors" value={device} onChange={(e) => setDevice(e.target.value)}>
+                  {devices.map((d) => <option key={d}>{d}</option>)}
+                </select>
+              </label>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[10px] text-slate-500 font-mono">RESOLUÇÃO (X/Y)</span>
+                  <div className="flex gap-2 mt-1">
+                    <input type="number" className="w-full bg-black border border-slate-800 p-2.5 rounded text-white text-sm text-center outline-none focus:border-cyan-500" value={resX} onChange={e => setResX(Number(e.target.value))} />
+                    <input type="number" className="w-full bg-black border border-slate-800 p-2.5 rounded text-white text-sm text-center outline-none focus:border-cyan-500" value={resY} onChange={e => setResY(Number(e.target.value))} />
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] text-slate-500 font-mono">DPI DO KERNEL</span>
+                  <input type="number" className="w-full mt-1 bg-black border border-cyan-900/50 p-2.5 rounded text-cyan-300 font-bold text-center outline-none focus:border-cyan-400" value={dpiNumber} onChange={e => setDpiNumber(Number(e.target.value))} />
+                </label>
+              </div>
+
+              {/* Toggla da Dedeira (Novidade de hardware externo) */}
+              <div className="flex items-center justify-between bg-black/50 p-3 rounded border border-slate-800 mt-2">
+                <span className="text-xs font-mono text-slate-300 flex items-center gap-2"><Hand size={14} className="text-slate-500"/> USA DEDEIRA GAMER?</span>
+                <button onClick={() => {setUsesSleeve(!usesSleeve); buzz();}} className={`w-12 h-6 rounded-full transition-colors relative ${usesSleeve ? 'bg-cyan-600' : 'bg-slate-700'}`}>
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${usesSleeve ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="cyber-panel p-5 rounded-xl relative">
+            <div className="absolute top-0 left-0 w-1 h-full bg-orange-500" />
+            <h2 className="text-orange-400 font-black tracking-widest text-sm mb-4 flex items-center gap-2"><Zap size={16}/> TESTE DE REFLEXO (NEURAL)</h2>
+            <p className="text-[10px] text-slate-400 mb-3 font-mono leading-relaxed">Sua velocidade de reação impacta diretamente o limite de sensibilidade que seu cérebro consegue controlar sem pinar.</p>
+            <ReflexTest onComplete={setReactionMs} buzz={buzz} />
+          </section>
+        </div>
+
+        {/* COLUNA 2: FÍSICA E RESULTADO */}
+        <div className="space-y-6">
+          <section className="cyber-panel p-5 rounded-xl relative">
+            <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
+            <h2 className="text-red-400 font-black tracking-widest text-sm mb-4 flex items-center gap-2"><Target size={16}/> FÍSICA DE ARRASTE (AIM ASSIST)</h2>
+            <p className="text-[10px] text-slate-400 font-mono mb-2">Simule 3 puxadas. O algoritmo medirá sua força motriz contra a gravidade do peito.</p>
+            <PullUpSimulator onFeedback={notify} onComplete={(c, b) => {setDragCoeff(c); setComputedBtn(b);}} usesSleeve={usesSleeve} />
+          </section>
+        </div>
+      </div>
+
+      {/* PAINEL CENTRAL DE RESULTADOS (GERADOR) */}
+      <section className="cyber-panel p-1 rounded-xl mt-8 relative overflow-hidden bg-gradient-to-b from-cyan-900/40 to-black">
+        <div className="p-6">
+          <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 border-b border-slate-800 pb-6">
+            <div>
+              <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2"><Activity className="text-cyan-500"/> MATRIZ DE SENSIBILIDADE</h2>
+              <p className="text-xs text-cyan-500/70 font-mono mt-1">DADOS PROCESSADOS DA COLETA NEURAL E FÍSICA</p>
+            </div>
+            <Button onClick={generate} disabled={scanning} className="w-full md:w-auto bg-cyan-600 hover:bg-cyan-500 text-white font-bold h-12 px-8 shadow-[0_0_20px_rgba(8,145,178,0.4)]">
+              {scanning ? <RefreshCw className="animate-spin" size={20} /> : <span className="flex items-center gap-2"><BrainCircuit size={18} /> PROCESSAR MATRIZ</span>}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* ARQUÉTIPO E BOTÃO */}
+            <div className="md:col-span-1 space-y-4">
+              <div className="bg-black/60 border border-slate-800 p-4 rounded-lg relative overflow-hidden">
+                <div className="absolute right-0 top-0 opacity-10"><Target size={80}/></div>
+                <span className="block text-[10px] text-slate-500 font-mono mb-1">ARQUÉTIPO DE JOGADOR</span>
+                <strong className="text-lg text-orange-400 font-black tracking-wide">{sensi.archetype}</strong>
+              </div>
+              <div className="bg-black/60 border border-slate-800 p-4 rounded-lg relative overflow-hidden flex justify-between items-center">
+                <div>
+                  <span className="block text-[10px] text-slate-500 font-mono mb-1">BOTÃO DE TIRO (HUD)</span>
+                  <strong className="text-2xl text-cyan-400 font-black">{computedBtn}<span className="text-sm">%</span></strong>
+                </div>
+                <div className="w-12 h-12 rounded-full border-2 border-cyan-500 flex items-center justify-center bg-cyan-900/20 shadow-[0_0_15px_rgba(8,145,178,0.3)]">
+                  <Fingerprint size={20} className="text-cyan-400" />
+                </div>
+              </div>
+            </div>
+
+            {/* SENSIBILIDADES */}
+            <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-3">
+              {[
+                { name: "GERAL", val: sensi.geral, color: "text-white" },
+                { name: "RED DOT", val: sensi.red, color: "text-red-400" },
+                { name: "MIRA 2X", val: sensi.x2, color: "text-slate-300" },
+                { name: "MIRA 4X", val: sensi.x4, color: "text-slate-300" },
+                { name: "AWM", val: sensi.awm, color: "text-orange-400" },
+                { name: "OLHADINHA", val: sensi.free, color: "text-slate-500" }
+              ].map((s, i) => (
+                <div key={s.name} className={`bg-black/40 border border-slate-800/80 p-4 rounded-lg text-center transition-all ${scanning ? 'opacity-50 scale-95' : 'opacity-100 scale-100'} delay-[${i * 50}ms]`}>
+                  <span className="block text-[10px] text-slate-500 font-mono mb-2 tracking-widest">{s.name}</span>
+                  <strong className={`text-3xl font-black ${s.color}`}>{s.val}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 flex justify-end">
+            <button onClick={copyValues} className="text-xs text-slate-400 hover:text-cyan-400 font-mono flex items-center gap-2 transition-colors">
+              <Copy size={14} /> EXPORTAR PERFIL PARA CLIPBOARD
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <footer className="text-center pt-10 pb-4 border-t border-slate-800/50 mt-12 opacity-50 hover:opacity-100 transition-opacity">
+        <div className="flex justify-center items-center gap-2 mb-2">
+          <Crosshair size={14} className="text-cyan-500" /> <span className="font-black text-sm text-white tracking-widest">SENSIX PRO</span>
+        </div>
+        <p className="text-[10px] font-mono text-slate-500">LABORATÓRIO INDEPENDENTE DE PERFORMANCE E-SPORTS V2.0</p>
+      </footer>
+    </div>
+    
+    {toast && (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-cyan-900 border border-cyan-500 text-white px-6 py-3 rounded-full flex items-center gap-3 shadow-[0_10px_40px_rgba(8,145,178,0.4)] z-50 animate-fade-in font-mono text-xs">
+        <ShieldCheck size={16} /> {toast.text}
+      </div>
+    )}
   </main>;
 }
-
-function SectionTitle({icon,kicker,title,text}:{icon:React.ReactNode;kicker:string;title:string;text?:string}){return <div className="section-title"><span className="section-icon">{icon}</span><div><p className="section-tag">{kicker}</p><h2>{title}</h2>{text&&<p>{text}</p>}</div></div>}
-function Field({label,children}:{label:string;children:React.ReactNode}){return <label>{label}{children}</label>}
-function Range({label,value,min,max,step=1,unit,onChange}:{label:string;value:number;min:number;max:number;step?:number;unit:string;onChange:(v:number)=>void}){return <label>{label}<b>{value}{unit}</b><input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(+e.target.value)}/></label>}
