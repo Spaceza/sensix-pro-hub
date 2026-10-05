@@ -32,6 +32,8 @@ export interface EngineInput {
   pull: PullStyle;
   inputLag: number; // 0-10 perceived
   touchDelay: number; // ms 0-200
+  fps: 30 | 45 | 60 | 90 | 120 | 144 | 240;
+  pointerSpeed: number; // 1-10
   /** optional multiplier from the drag simulator (0.8-1.2) */
   dragFactor?: number;
 }
@@ -60,6 +62,8 @@ export function compute(i: EngineInput): EngineOutput {
   const pullF = { linear: 1, short: 1.06, explosive: 0.93 }[i.pull];
   const fireF = 1 + (50 - i.fireButton) * 0.006; // smaller button → faster travel needed
   const latF = 1 + i.inputLag * 0.012 + i.touchDelay * 0.0006;
+  const fpsF = Math.max(0.94, Math.min(1.08, 1 + (60 - i.fps) * 0.0012));
+  const pointerF = Math.max(0.92, Math.min(1.08, 1 + (5 - i.pointerSpeed) * 0.018));
   const drag = i.dragFactor ?? 1;
 
   // Mode balance: BR = precision far, x1/cs = rotation speed
@@ -69,7 +73,7 @@ export function compute(i: EngineInput): EngineOutput {
     x1: { rot: 1.1, scope: 0.9 },
   }[i.mode];
 
-  const base = 172 * prefF * pullF * latF * drag;
+  const base = 172 * prefF * pullF * latF * fpsF * pointerF * drag;
   const geral = clamp(base * axisX * mode.rot * fireF);
   const redDot = clamp(base * 0.97 * axisY * resF * fireF);
   const acog = clamp(base * 0.9 * axisY * resF * mode.scope);
@@ -78,7 +82,7 @@ export function compute(i: EngineInput): EngineOutput {
   const camera = clamp(base * 0.86 * axisX * mode.rot);
 
   const ratio = dpi / (411 * resRatio);
-  const fire = clamp(50 + (1 - ratio) * 14 + (i.pull === "explosive" ? 4 : i.pull === "short" ? -3 : 0) + (i.mode === "x1" ? -2 : 0), 30, 80);
+  const fire = clamp(50 + (1 - ratio) * 18 + (i.pull === "explosive" ? 6 : i.pull === "short" ? -4 : 0) + (i.mode === "x1" ? -3 : 0), 10, 100);
 
   return {
     geral, redDot, acog, x4, awm, camera, fireButton: fire,
@@ -91,6 +95,8 @@ export function compute(i: EngineInput): EngineOutput {
       { label: "Puxada", value: `×${pullF.toFixed(2)}` },
       { label: "Botão de tiro", value: `×${fireF.toFixed(2)}` },
       { label: "Latência", value: `×${latF.toFixed(2)}` },
+      { label: "FPS", value: `×${fpsF.toFixed(2)}` },
+      { label: "Ponteiro", value: `×${pointerF.toFixed(2)}` },
       { label: "Simulador", value: `×${drag.toFixed(2)}` },
     ],
   };
@@ -109,4 +115,12 @@ export function idealDpi(tierId: string, resW: number) {
   if (t.id === "apple") return { text: "iOS não permite alterar DPI — ajuste a sensi pelo app.", hz: t.hz };
   const k = resW / 1080;
   return { text: `${Math.round(t.min * k)} – ${Math.round(t.max * k)} DPI`, hz: t.hz };
+}
+
+export function idealResolution(tierId: string, fps: EngineInput["fps"]) {
+  if (tierId === "sd8" || tierId === "apple") {
+    return fps >= 120 ? "FHD+ (1080p) — nitidez e resposta equilibradas" : "QHD+ (1440p) — detalhe sem sacrificar estabilidade";
+  }
+  if (tierId === "sd7") return fps >= 90 ? "FHD+ (1080p) — faixa competitiva ideal" : "HD+ (720p) — priorize estabilidade de quadros";
+  return "HD+ (720p) — menor carga, toque mais consistente";
 }
