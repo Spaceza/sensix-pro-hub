@@ -15,14 +15,14 @@ export interface Brand {
 }
 
 export const BRANDS: Brand[] = [
-  { id: "apple", label: "Apple iPhone (Pro Motion)", touch: 0.86, tier: "flagship", nativeSampling: 240 },
-  { id: "samsung", label: "Samsung Galaxy (Ultra/S Series)", touch: 0.98, tier: "flagship", nativeSampling: 240 },
-  { id: "asus", label: "ASUS ROG Phone (Hyper-Response)", touch: 0.88, tier: "flagship", nativeSampling: 720 },
-  { id: "xiaomi", label: "Xiaomi / POCO (Game Turbo)", touch: 1.06, tier: "mid", nativeSampling: 360 },
-  { id: "motorola", label: "Motorola Edge", touch: 1.05, tier: "mid", nativeSampling: 240 },
-  { id: "realme", label: "Realme GT Series", touch: 1.10, tier: "budget", nativeSampling: 360 },
-  { id: "infinix", label: "Infinix / Tecno Gaming", touch: 1.12, tier: "budget", nativeSampling: 180 },
-  { id: "emulator", label: "Emulador PC (Bluestacks / MSI)", touch: 0.80, tier: "flagship", nativeSampling: 720 },
+  { id: "apple_pro", label: "Apple iPhone Pro (ProMotion 120Hz/240Hz)", touch: 0.86, tier: "flagship", nativeSampling: 240 },
+  { id: "samsung_s", label: "Samsung Galaxy Linha S (S22/S23/S24 Ultra)", touch: 0.98, tier: "flagship", nativeSampling: 240 },
+  { id: "samsung_a", label: "Samsung Galaxy Linha A (A54/A55/A34)", touch: 1.05, tier: "mid", nativeSampling: 240 },
+  { id: "poco_f", label: "Xiaomi Poco Linha F (F4/F5/F6 Pro - 480Hz)", touch: 0.92, tier: "flagship", nativeSampling: 480 },
+  { id: "poco_x", label: "Xiaomi Poco Linha X (X5/X6 Pro - 360Hz)", touch: 1.04, tier: "mid", nativeSampling: 360 },
+  { id: "motorola_edge", label: "Motorola Edge Series (144Hz)", touch: 1.02, tier: "mid", nativeSampling: 240 },
+  { id: "asus_rog", label: "ASUS ROG Phone (Hyper-Response 720Hz)", touch: 0.85, tier: "flagship", nativeSampling: 720 },
+  { id: "pc_emulator", label: "Emulador PC (Bluestacks / MSI - 1000Hz)", touch: 0.80, tier: "flagship", nativeSampling: 720 },
 ];
 
 export const RESOLUTIONS = [
@@ -86,7 +86,7 @@ const clamp = (v: number, a = 0, b = 200) => Math.min(b, Math.max(a, Math.round(
 
 export function compute(i: EngineInput): EngineOutput {
   const brand = BRANDS.find((b) => b.id === i.brandId) ?? BRANDS[1];
-  const dpi = Math.min(1200, Math.max(120, i.dpi || 411));
+  const dpi = Math.min(1400, Math.max(320, i.dpi || 411));
   const resRatio = Math.max(0.5, Math.min(1.8, (i.resW || 1080) / 1080));
   const aspect = (i.resH || 2400) / (i.resW || 1080);
 
@@ -173,19 +173,19 @@ export function compute(i: EngineInput): EngineOutput {
   const awm = clamp(base * 0.43 * axisY * (modeModifier.scope > 1 ? 1.05 : 0.94));
   const camera = clamp(base * 0.88 * axisX * modeModifier.rot);
 
-  // Dynamic fire button recommendation based on DPI and screen physics
+  // Dynamic fire button recommendation based on DPI and screen physics (Strict 10% to 65%)
   const dpiResRatio = dpi / (411 * resRatio);
   const baseFire = clamp(
     50 +
-      (1 - dpiResRatio) * 18 +
-      (i.pull === "explosive" ? 6 : i.pull === "short" ? -5 : 0) +
+      (1 - dpiResRatio) * 12 +
+      (i.pull === "explosive" ? 5 : i.pull === "short" ? -4 : 0) +
       (i.mode === "x1" ? -3 : 0),
-    25,
-    85
+    10,
+    65
   );
 
-  const finalFireButton = bio?.samples && bio.samples > 3 ? recommendedButton : baseFire;
-  const finalButtonY = clamp(recommendedButtonY, 12, 60);
+  const finalFireButton = clamp(bio?.samples && bio.samples > 3 ? recommendedButton : baseFire, 10, 65);
+  const finalButtonY = clamp(recommendedButtonY, 10, 65);
 
   // Hardware responsiveness score (0-100)
   const hardwareScore = Math.min(

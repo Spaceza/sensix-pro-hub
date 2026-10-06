@@ -22,6 +22,9 @@ export interface AimLabProps {
   stretchedScreen?: boolean;
   fps?: EngineInput["fps"];
   touchSampling?: number;
+  sensiGeral?: number;
+  dpi?: number;
+  pointerSpeed?: number;
   onResult: (result: TrainingResult | null) => void;
 }
 
@@ -81,6 +84,9 @@ export function AimLab({
   stretchedScreen = false,
   fps = 60,
   touchSampling = 240,
+  sensiGeral = 184,
+  dpi = 411,
+  pointerSpeed = 5,
   onResult,
 }: AimLabProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -321,15 +327,16 @@ export function AimLab({
         flickAcc = pdist / pdt; // px/ms
       }
 
-      // Explosive flick breaks the chest lock!
+      // Aim Assist Magnetic Gravity Force G = 10
+      const GRAVITATIONAL_PULL_FORCE = 10;
       const flickBreaksMagnet = flickAcc > 1.35;
       const isLockedInChest = isShooting.current && isNearChest && !flickBreaksMagnet;
 
       setAimAssistLock(isLockedInChest);
 
-      // Apply magnet attraction towards chest center if locked
+      // Apply magnet attraction towards chest center if locked (G=10)
       if (isLockedInChest) {
-        const pullStrength = 0.24;
+        const pullStrength = (GRAVITATIONAL_PULL_FORCE / 10) * 0.24;
         reticle.x += (chestCenter.x - reticle.x) * pullStrength;
         reticle.y += (chestCenter.y - reticle.y) * pullStrength;
       }
@@ -550,10 +557,10 @@ export function AimLab({
     const arenaRect = arenaRef.current?.getBoundingClientRect();
     if (!arenaRect) return;
 
-    // Current reticle update based on drag delta
-    // Free Fire drag: upward swipe pulls crosshair upwards (inverted delta Y)
-    const nextX = Math.max(20, Math.min(arenaRect.width - 20, reticlePos.current.x + rawDx * stretchX * 0.18));
-    const nextY = Math.max(20, Math.min(arenaRect.height - 20, reticlePos.current.y + rawDy * stretchY * 0.18));
+    // PHYSICAL MULTIPLIER: Simulator strictly uses the configured sensitivity!
+    const currentSensitivityScale = ((sensiGeral ?? 184) / 100) * (411 / (dpi ?? 411)) * ((pointerSpeed ?? 5) / 5);
+    const nextX = Math.max(20, Math.min(arenaRect.width - 20, reticlePos.current.x + rawDx * currentSensitivityScale * stretchX * 0.18));
+    const nextY = Math.max(20, Math.min(arenaRect.height - 20, reticlePos.current.y + rawDy * currentSensitivityScale * stretchY * 0.18));
 
     reticlePos.current = { x: nextX, y: nextY };
 
@@ -665,14 +672,16 @@ export function AimLab({
 
     if (scenario === "Overshoot" || speed > 2.2) {
       factor = 0.88; // Lower sensitivity
-      recButton = Math.min(85, fireButtonSize + 8);
+      recButton = Math.min(65, fireButtonSize + 5);
     } else if (scenario === "Preso no Peito" || speed < 0.4) {
       factor = 1.12; // Boost sensitivity
-      recButton = Math.max(30, fireButtonSize - 6);
-      recButtonY = Math.max(12, fireButtonYPos - 4);
+      recButton = Math.max(10, fireButtonSize - 4);
+      recButtonY = Math.max(10, fireButtonYPos - 4);
     } else if (stability < 55) {
       factor = 0.95;
     }
+    recButton = Math.min(65, Math.max(10, recButton));
+    recButtonY = Math.min(65, Math.max(10, recButtonY));
 
     const result: TrainingResult = {
       speed,

@@ -79,7 +79,7 @@ type Profile = {
 const initial: EngineInput = {
   mode: "br",
   preference: "mid",
-  brandId: "samsung",
+  brandId: "samsung_s",
   dpi: 411,
   resW: 1080,
   resH: 2400,
@@ -225,6 +225,13 @@ function Dashboard({
   const [toast, setToast] = useState("");
   const [cpu, setCpu] = useState("sd8");
 
+  // Evolutionary Feedback & Local ML Recalibration State
+  const [feedbackGeral, setFeedbackGeral] = useState<"fast" | "slow" | "perfect">("perfect");
+  const [feedbackCapa, setFeedbackCapa] = useState<"chest" | "over" | "jitter" | "head">("chest");
+  const [feedbackButton, setFeedbackButton] = useState<"hit" | "miss">("hit");
+  const [feedbackScope, setFeedbackScope] = useState<"reddot" | "scope2x" | "ok">("ok");
+  const [mlDiagnostic, setMlDiagnostic] = useState<string>("");
+
   const pageRef = useRef<HTMLElement>(null);
 
   // Sync preference with background canvas
@@ -256,6 +263,58 @@ function Dashboard({
 
   const dpiRec = idealDpi(cpu, input.resW);
   const resolutionRec = idealResolution(cpu, input.fps);
+
+  const handleRecalibrateML = () => {
+    const explanation: string[] = [];
+
+    // Jitter: reduce DPI, decrease pointer speed, increase sensi
+    if (feedbackCapa === "jitter") {
+      setInput((prev) => ({
+        ...prev,
+        dpi: Math.max(320, prev.dpi - 40),
+        pointerSpeed: Math.max(1, prev.pointerSpeed - 1),
+      }));
+      explanation.push(
+        "Jitter detectado: DPI reduzida em -40 e velocidade do ponteiro diminuída para eliminar pixel skipping."
+      );
+    }
+
+    // Chest lock: increase button (+5%), lower Y (-4%), increase DPI (+25)
+    if (feedbackCapa === "chest") {
+      setInput((prev) => ({
+        ...prev,
+        fireButton: Math.min(65, prev.fireButton + 5),
+        fireButtonY: Math.max(10, prev.fireButtonY - 4),
+        dpi: Math.min(1400, prev.dpi + 25),
+      }));
+      explanation.push(
+        "Travou no peito: Botão ampliado em +5% (alavanca), altura Y rebaixada em -4% e DPI aumentada (+25) para romper o ímã G=10."
+      );
+    }
+
+    // Overshoot: lower sensitivity
+    if (feedbackCapa === "over" || feedbackGeral === "fast") {
+      explanation.push(
+        "Overshoot: Redução sugerida na Sensibilidade Geral e Red Dot para frear a mira cravada na cabeça."
+      );
+    }
+
+    // Miss button: increase button size
+    if (feedbackButton === "miss") {
+      setInput((prev) => ({
+        ...prev,
+        fireButton: Math.min(65, prev.fireButton + 6),
+      }));
+      explanation.push("Ergonomia: Botão de tiro aumentado em +6% para expandir a área de toque.");
+    }
+
+    setMlDiagnostic(
+      explanation.length > 0
+        ? explanation.join(" • ")
+        : "Build perfeitamente equilibrada! Nenhuma alteração drástica necessária."
+    );
+    note("Recalibragem evolutiva aplicada!");
+  };
 
   const set = <K extends keyof EngineInput>(key: K, value: EngineInput[K]) =>
     setInput((current) => ({ ...current, [key]: value }));
@@ -509,11 +568,25 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           <b>03</b>
           <span>CALIBRAÇÃO</span>
         </button>
-        <button onClick={() => document.getElementById("profiles")?.scrollIntoView()}>
+        <button onClick={() => document.getElementById("mlSection")?.scrollIntoView()}>
           <b>04</b>
+          <span>RECALIBRAGEM ML</span>
+        </button>
+        <button onClick={() => document.getElementById("profiles")?.scrollIntoView()}>
+          <b>05</b>
           <span>BUILDS</span>
         </button>
         <div className="nav-tools">
+          <a
+            href="/standalone-aimlab.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ui-button ui-button-outline"
+            style={{ padding: "0.35rem 0.65rem", fontSize: "0.75rem", textDecoration: "none" }}
+            title="Abrir versão standalone de arquivo único"
+          >
+            ⚡ STANDALONE 3D
+          </a>
           <button
             onClick={() => setLang(lang === "pt" ? "en" : "pt")}
             aria-label="Idioma"
@@ -547,6 +620,9 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           stretchedScreen={input.stretchedScreen}
           fps={input.fps}
           touchSampling={input.touchSampling}
+          sensiGeral={output.geral}
+          dpi={input.dpi}
+          pointerSpeed={input.pointerSpeed}
           onResult={setTraining}
         />
       </section>
@@ -653,15 +729,15 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
             </select>
           </Field>
 
-          <Field label="DPI ATUAL (LARGURA MÍNIMA)">
+          <Field label="DPI ATUAL (LARGURA MÍNIMA 320 - 1400)">
             <input
               className="sx-input"
               type="number"
-              min="120"
-              max="1200"
+              min="320"
+              max="1400"
               value={input.dpi}
               onChange={(e) =>
-                set("dpi", Math.max(120, Math.min(1200, +e.target.value || 120)))
+                set("dpi", Math.max(320, Math.min(1400, +e.target.value || 320)))
               }
             />
           </Field>
@@ -695,10 +771,10 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           </Field>
 
           <Range
-            label="TAMANHO DO BOTÃO DE ATIRAR"
+            label="TAMANHO DO BOTÃO DE ATIRAR (10% - 65%)"
             value={training?.fireButton ?? input.fireButton}
             min={10}
-            max={100}
+            max={65}
             unit="%"
             onChange={(v) => {
               set("fireButton", v);
@@ -842,7 +918,74 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
         </div>
       </section>
 
-      {/* 5. Cloud Loadouts / Saved Athlete Builds */}
+      {/* 5. Evolutionary Feedback & Local ML Recalibration */}
+      <section id="mlSection" className="panel reactive-panel reveal">
+        <SectionTitle
+          icon={<Zap />}
+          kicker="MACHINE LEARNING LOCAL // ALGORITMO EVOLUTIVO"
+          title="FEEDBACK PÓS-TREINO & AUTO-AJUSTE"
+          text="Cruze os sintomas reais da sua puxada para reescrever dinamicamente o tamanho do botão, DPI e sensibilidade."
+        />
+
+        <div className="sx-form-grid" style={{ marginBottom: "1.25rem" }}>
+          <Field label="1. SENSIBILIDADE GERAL">
+            <select
+              value={feedbackGeral}
+              onChange={(e) => setFeedbackGeral(e.target.value as any)}
+            >
+              <option value="perfect">Perfeita / Equilibrada</option>
+              <option value="fast">Alta demais (Passando da cabeça)</option>
+              <option value="slow">Baixa demais (Pesada)</option>
+            </select>
+          </Field>
+
+          <Field label="2. COMPORTAMENTO DO CAPA">
+            <select
+              value={feedbackCapa}
+              onChange={(e) => setFeedbackCapa(e.target.value as any)}
+            >
+              <option value="chest">Travou no peito (Não rompe G=10)</option>
+              <option value="over">Passou da cabeça (Overshoot)</option>
+              <option value="jitter">Tremendo muito (Pixel Skipping)</option>
+              <option value="head">Só capa cravado (Perfeito)</option>
+            </select>
+          </Field>
+
+          <Field label="3. ERGONOMIA DO BOTÃO">
+            <select
+              value={feedbackButton}
+              onChange={(e) => setFeedbackButton(e.target.value as any)}
+            >
+              <option value="hit">Acertei perfeitamente o botão</option>
+              <option value="miss">Errei o botão / Deslize acidental</option>
+            </select>
+          </Field>
+
+          <Field label="4. MIRAS ESPECÍFICAS">
+            <select
+              value={feedbackScope}
+              onChange={(e) => setFeedbackScope(e.target.value as any)}
+            >
+              <option value="ok">Todas calibradas</option>
+              <option value="reddot">Red Dot precisa de ajuste</option>
+              <option value="scope2x">Mira 2X precisa de ajuste</option>
+            </select>
+          </Field>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "1rem", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "1rem" }}>
+          <button className="ui-button" type="button" onClick={handleRecalibrateML}>
+            <Zap size={15} /> EXECUTAR RECALIBRAGEM ML
+          </button>
+          {mlDiagnostic && (
+            <div style={{ fontSize: "0.85rem", color: "var(--theme-primary, #ffcc00)", maxWidth: "48rem", fontFamily: "var(--font-mono, monospace)" }}>
+              {mlDiagnostic}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* 6. Cloud Loadouts / Saved Athlete Builds */}
       <section id="profiles" className="panel reactive-panel reveal">
         <SectionTitle
           icon={<BarChart3 />}
