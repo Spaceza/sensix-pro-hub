@@ -1,185 +1,1042 @@
 import { useEffect, useRef, useState } from "react";
-import { Crosshair, RotateCcw, Volume2 } from "lucide-react";
+import {
+  Crosshair,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+  Shield,
+  Zap,
+  MoveHorizontal,
+  Flame,
+  Activity,
+  Sliders,
+  Sparkles,
+} from "lucide-react";
+import type { Preference, EngineInput } from "@/lib/sensi-engine";
 
-export type TrainingResult = {
+export interface AimLabProps {
+  sound: boolean;
+  baseFire: number;
+  baseFireY?: number;
+  preference: Preference;
+  stretchedScreen?: boolean;
+  fps?: EngineInput["fps"];
+  touchSampling?: number;
+  onResult: (result: TrainingResult | null) => void;
+}
+
+export interface TrainingResult {
   speed: number;
-  angle: number;
+  accel: number;
   headDwell: number;
   stability: number;
   accuracy: number;
   headshots: number;
   bodyshots: number;
+  overshoots: number;
   factor: number;
   fireButton: number;
-};
+  fireButtonY: number;
+  pullPattern: "Linear" | "Puxada em J" | "Meia-Lua";
+  scenario: "Preso no Peito" | "Capa Cravado" | "Puxada Pé-Cabeça" | "Overshoot";
+  hsRate: number;
+  chestLockRate: number;
+  overshootRate: number;
+}
 
-type Point = { x: number; y: number; t: number };
-type Damage = { x: number; y: number; value: number; head: boolean; born: number };
-type Tracer = { x1: number; y1: number; x2: number; y2: number; born: number };
+interface Point {
+  x: number;
+  y: number;
+  t: number;
+}
 
-const TARGETS = [{ x: .28, y: .42, s: 1 }, { x: .69, y: .39, s: .88 }, { x: .5, y: .55, s: .72 }];
+interface Damage {
+  x: number;
+  y: number;
+  value: number;
+  type: "head" | "body" | "leg" | "miss";
+  born: number;
+}
 
-export function AimLab({ sound, baseFire, onResult }: { sound: boolean; baseFire: number; onResult: (result: TrainingResult | null) => void }) {
+interface Tracer {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  head: boolean;
+  born: number;
+}
+
+interface HeatHit {
+  x: number;
+  y: number;
+  type: "head" | "chest" | "overshoot" | "limb";
+}
+
+export function AimLab({
+  sound,
+  baseFire,
+  baseFireY = 22,
+  preference,
+  stretchedScreen = false,
+  fps = 60,
+  touchSampling = 240,
+  onResult,
+}: AimLabProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const arenaRef = useRef<HTMLDivElement>(null);
-  const pointer = useRef<Point>({ x: 0, y: 0, t: 0 });
-  const path = useRef<Point[]>([]);
-  const shooting = useRef(false);
-  const lastShot = useRef(0);
-  const damages = useRef<Damage[]>([]);
-  const tracers = useRef<Tracer[]>([]);
-  const headStart = useRef<number | null>(null);
-  const dwell = useRef(0);
-  const audio = useRef<AudioContext | null>(null);
-  const [metrics, setMetrics] = useState<TrainingResult | null>(null);
-  const [locked, setLocked] = useState(false);
+  const audioRef = useRef<AudioContext | null>(null);
 
-  const playShot = () => {
+  // States
+  const [metrics, setMetrics] = useState<TrainingResult | null>(null);
+  const [stockLvl3, setStockLvl3] = useState(true);
+  const [strafeEnabled, setStrafeEnabled] = useState(false);
+  const [aimAssistLock, setAimAssistLock] = useState(false);
+  const [overshootActive, setOvershootActive] = useState(false);
+  const [currentScenario, setCurrentScenario] = useState<TrainingResult["scenario"]>("Preso no Peito");
+  const [detectedPattern, setDetectedPattern] = useState<TrainingResult["pullPattern"]>("Linear");
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [fireButtonSize, setFireButtonSize] = useState(baseFire);
+  const [fireButtonYPos, setFireButtonYPos] = useState(baseFireY);
+
+  // Heatmap spots
+  const [heatHits, setHeatHits] = useState<HeatHit[]>([]);
+
+  // Telemetry refs for RAF loop
+  const pointerPos = useRef<{ x: number; y: number }>({ x: 300, y: 260 });
+  const reticlePos = useRef<{ x: number; y: number }>({ x: 300, y: 260 });
+  const fireButtonDragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const isShooting = useRef(false);
+  const lastShotTime = useRef(0);
+  const pathPoints = useRef<Point[]>([]);
+  const bloomRadius = useRef(0);
+  const damagesRef = useRef<Damage[]>([]);
+  const tracersRef = useRef<Tracer[]>([]);
+  const headDwellTime = useRef(0);
+  const headDwellStart = useRef<number | null>(null);
+
+  // Dummy target position & strafe
+  const targetPos = useRef({ x: 0.5, y: 0.44, vx: 0.0018, direction: 1 });
+
+  // Update button size & Y if prop changes and not custom modified
+  useEffect(() => {
+    setFireButtonSize(baseFire);
+  }, [baseFire]);
+
+  useEffect(() => {
+    setFireButtonYPos(baseFireY);
+  }, [baseFireY]);
+
+  // Procedural Web Audio Sound Synthesizer
+  const playGunshot = (isHead: boolean) => {
     if (!sound) return;
-    const Audio = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Audio) return;
-    const ctx = audio.current ?? new Audio();
-    audio.current = ctx;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = audioRef.current ?? new AudioContextClass();
+    audioRef.current = ctx;
     if (ctx.state === "suspended") void ctx.resume();
+
     const now = ctx.currentTime;
-    const noiseBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * .07), ctx.sampleRate);
+
+    // 1. Kick transient (punchy bass impact of Free Fire UMP-45)
+    const kickOsc = ctx.createOscillator();
+    const kickGain = ctx.createGain();
+    kickOsc.type = "sine";
+    kickOsc.frequency.setValueAtTime(isHead ? 155 : 120, now);
+    kickOsc.frequency.exponentialRampToValueAtTime(38, now + 0.065);
+    kickGain.gain.setValueAtTime(0.18, now);
+    kickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    kickOsc.connect(kickGain).connect(ctx.destination);
+    kickOsc.start(now);
+    kickOsc.stop(now + 0.075);
+
+    // 2. Gunpowder crack noise burst
+    const bufferSize = Math.floor(ctx.sampleRate * 0.08);
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * .18));
-    const noise = ctx.createBufferSource();
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.22));
+    }
+    const noiseSource = ctx.createBufferSource();
     const filter = ctx.createBiquadFilter();
-    const gain = ctx.createGain();
-    noise.buffer = noiseBuffer; filter.type = "bandpass"; filter.frequency.value = 1250; filter.Q.value = .8;
-    gain.gain.setValueAtTime(.12, now); gain.gain.exponentialRampToValueAtTime(.001, now + .075);
-    noise.connect(filter).connect(gain).connect(ctx.destination); noise.start(now);
-    const osc = ctx.createOscillator(); const kick = ctx.createGain();
-    osc.type = "square"; osc.frequency.setValueAtTime(118, now); osc.frequency.exponentialRampToValueAtTime(52, now + .055);
-    kick.gain.setValueAtTime(.055, now); kick.gain.exponentialRampToValueAtTime(.001, now + .06);
-    osc.connect(kick).connect(ctx.destination); osc.start(now); osc.stop(now + .065);
+    const noiseGain = ctx.createGain();
+
+    noiseSource.buffer = noiseBuffer;
+    filter.type = "bandpass";
+    filter.frequency.value = isHead ? 2600 : 1600;
+    filter.Q.value = 1.2;
+    noiseGain.gain.setValueAtTime(isHead ? 0.24 : 0.16, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+    noiseSource.connect(filter).connect(noiseGain).connect(ctx.destination);
+    noiseSource.start(now);
+
+    // 3. Headshot metallic bell "PING" if critical head hit
+    if (isHead) {
+      const bellOsc = ctx.createOscillator();
+      const bellGain = ctx.createGain();
+      bellOsc.type = "triangle";
+      bellOsc.frequency.setValueAtTime(1880, now);
+      bellOsc.frequency.exponentialRampToValueAtTime(840, now + 0.14);
+      bellGain.gain.setValueAtTime(0.22, now);
+      bellGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      bellOsc.connect(bellGain).connect(ctx.destination);
+      bellOsc.start(now);
+      bellOsc.stop(now + 0.16);
+    }
   };
 
+  const playDeniedBeep = () => {
+    if (!sound) return;
+    try {
+      const ctx = audioRef.current ?? new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      audioRef.current = ctx;
+      if (ctx.state === "suspended") void ctx.resume();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(210, now);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.13);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Main Canvas Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     const arena = arenaRef.current;
     if (!canvas || !arena) return;
-    let frame = 0;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    let animId = 0;
+
     const resize = () => {
       const rect = arena.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio, 2);
-      canvas.width = Math.max(1, Math.round(rect.width * dpr)); canvas.height = Math.max(1, Math.round(rect.height * dpr));
-      canvas.style.width = `${rect.width}px`; canvas.style.height = `${rect.height}px`; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (pointer.current.x === 0) pointer.current = { x: rect.width / 2, y: rect.height * .72, t: performance.now() };
-    };
-    const observer = new ResizeObserver(resize); observer.observe(arena); resize();
-    const drawTarget = (x: number, y: number, s: number) => {
-      ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
-      ctx.fillStyle = "rgba(10,14,18,.92)"; ctx.strokeStyle = "rgba(143,222,230,.48)"; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.arc(0, -69, 21, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.roundRect(-35, -45, 70, 94, 10); ctx.fill(); ctx.stroke();
-      ctx.strokeStyle = "rgba(143,222,230,.2)"; ctx.beginPath(); ctx.moveTo(-20, 49); ctx.lineTo(-24, 105); ctx.moveTo(20, 49); ctx.lineTo(24, 105); ctx.stroke();
-      ctx.strokeStyle = "rgba(255,65,44,.66)"; ctx.beginPath(); ctx.arc(0, -69, 16, 0, Math.PI * 2); ctx.stroke();
-      ctx.restore();
-    };
-    const hitTest = (x: number, y: number, w: number, h: number) => {
-      let best: { head: boolean; x: number; y: number; d: number } | null = null;
-      for (const target of TARGETS) {
-        const tx = target.x * w, ty = target.y * h;
-        const hd = Math.hypot(x - tx, y - (ty - 69 * target.s));
-        const bodyDx = Math.abs(x - tx), bodyDy = Math.abs(y - ty);
-        const candidate = hd < 23 * target.s ? { head: true, x: tx, y: ty - 69 * target.s, d: hd } : bodyDx < 40 * target.s && bodyDy < 55 * target.s ? { head: false, x: tx, y: ty, d: Math.hypot(bodyDx, bodyDy) } : null;
-        if (candidate && (!best || candidate.d < best.d)) best = candidate;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Default reticle centered on target torso if starting
+      if (reticlePos.current.x === 300) {
+        reticlePos.current = { x: rect.width * 0.5, y: rect.height * 0.44 };
+        pointerPos.current = { x: rect.width * 0.5, y: rect.height * 0.44 };
       }
-      return best;
     };
+
+    const obs = new ResizeObserver(resize);
+    obs.observe(arena);
+    resize();
+
+    let lastLoopTime = performance.now();
+
     const loop = (now: number) => {
-      const rect = arena.getBoundingClientRect(); const w = rect.width, h = rect.height;
+      const rect = arena.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      const dt = Math.min((now - lastLoopTime) / 1000, 0.05);
+      lastLoopTime = now;
+
       ctx.clearRect(0, 0, w, h);
-      const grd = ctx.createLinearGradient(0, 0, 0, h); grd.addColorStop(0, "rgba(22,30,35,.92)"); grd.addColorStop(1, "rgba(5,7,9,.98)"); ctx.fillStyle = grd; ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = "rgba(143,222,230,.07)"; ctx.lineWidth = 1;
-      for (let x = 0; x < w; x += 36) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-      for (let y = 0; y < h; y += 36) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-      TARGETS.forEach(t => drawTarget(t.x * w, t.y * h, t.s));
-      const hit = hitTest(pointer.current.x, pointer.current.y, w, h);
-      setLocked(Boolean(hit && !hit.head));
-      if (shooting.current && now - lastShot.current > 92) {
-        lastShot.current = now; playShot();
-        const jitter = (Math.random() - .5) * 7; const impactX = pointer.current.x + jitter; const impactY = pointer.current.y + Math.random() * 5;
-        const impact = hitTest(impactX, impactY, w, h);
-        tracers.current.push({ x1: w * .82, y1: h * .94, x2: impactX, y2: impactY, born: now });
-        if (impact) damages.current.push({ x: impact.x, y: impact.y, value: impact.head ? 137 : 24, head: impact.head, born: now });
+
+      // 1. Tactical Arena Background
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+      bgGrad.addColorStop(0, "rgba(8, 12, 16, 0.95)");
+      bgGrad.addColorStop(1, "rgba(4, 6, 8, 0.98)");
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Cyber Grid
+      ctx.strokeStyle = "rgba(143, 222, 230, 0.05)";
+      ctx.lineWidth = 1;
+      const gridSize = 40;
+      for (let x = 0; x < w; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
       }
-      tracers.current = tracers.current.filter(t => now - t.born < 130);
-      for (const t of tracers.current) { const a = 1 - (now - t.born) / 130; ctx.strokeStyle = `rgba(255,194,77,${a})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(t.x1, t.y1); ctx.lineTo(t.x2, t.y2); ctx.stroke(); }
-      damages.current = damages.current.filter(d => now - d.born < 650);
-      for (const d of damages.current) { const age = (now - d.born) / 650; ctx.fillStyle = d.head ? `rgba(255,60,38,${1-age})` : `rgba(255,211,78,${1-age})`; ctx.font = `700 ${d.head ? 25 : 18}px Orbitron`; ctx.textAlign = "center"; ctx.fillText(String(d.value), d.x, d.y - age * 34); }
-      const p = pointer.current; const reticleColor = hit && !hit.head ? "#ff4638" : "#eefcff";
-      ctx.strokeStyle = reticleColor; ctx.lineWidth = 1.5; ctx.shadowColor = reticleColor; ctx.shadowBlur = 9;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2); ctx.moveTo(p.x - 24, p.y); ctx.lineTo(p.x - 8, p.y); ctx.moveTo(p.x + 8, p.y); ctx.lineTo(p.x + 24, p.y); ctx.moveTo(p.x, p.y - 24); ctx.lineTo(p.x, p.y - 8); ctx.moveTo(p.x, p.y + 8); ctx.lineTo(p.x, p.y + 24); ctx.stroke(); ctx.shadowBlur = 0;
-      if (shooting.current && hit?.head) { if (headStart.current === null) headStart.current = now; dwell.current += 16; } else headStart.current = null;
-      frame = requestAnimationFrame(loop);
+      for (let y = 0; y < h; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // 2. Strafe Target Physics
+      if (strafeEnabled) {
+        targetPos.current.x += targetPos.current.vx * targetPos.current.direction;
+        if (targetPos.current.x > 0.72) {
+          targetPos.current.x = 0.72;
+          targetPos.current.direction = -1;
+        } else if (targetPos.current.x < 0.28) {
+          targetPos.current.x = 0.28;
+          targetPos.current.direction = 1;
+        }
+      }
+
+      const tx = targetPos.current.x * w;
+      const ty = targetPos.current.y * h;
+      const targetScale = 1.0;
+
+      // Draw Free Fire Character Dummy with Anatomical Hitboxes
+      drawFreeFireDummy(ctx, tx, ty, targetScale, preference);
+
+      // Hitbox dimensions
+      const headCenter = { x: tx, y: ty - 84 * targetScale };
+      const headRadius = 22 * targetScale;
+      const chestCenter = { x: tx, y: ty - 18 * targetScale };
+      const chestHalfW = 34 * targetScale;
+      const chestHalfH = 46 * targetScale;
+      const legCenter = { x: tx, y: ty + 56 * targetScale };
+      const legHalfW = 28 * targetScale;
+      const legHalfH = 42 * targetScale;
+
+      // 3. Aim Assist Magnetic Gravity & Reticle Dynamics
+      const reticle = reticlePos.current;
+
+      // Distance from chest magnet
+      const distToChest = Math.hypot(reticle.x - chestCenter.x, reticle.y - chestCenter.y);
+      const isNearChest = distToChest < 85;
+
+      // Evaluate flick acceleration
+      const recentPoints = pathPoints.current.slice(-5);
+      let flickAcc = 0;
+      if (recentPoints.length >= 2) {
+        const p1 = recentPoints[0];
+        const p2 = recentPoints[recentPoints.length - 1];
+        const pdt = Math.max(1, p2.t - p1.t);
+        const pdist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        flickAcc = pdist / pdt; // px/ms
+      }
+
+      // Explosive flick breaks the chest lock!
+      const flickBreaksMagnet = flickAcc > 1.35;
+      const isLockedInChest = isShooting.current && isNearChest && !flickBreaksMagnet;
+
+      setAimAssistLock(isLockedInChest);
+
+      // Apply magnet attraction towards chest center if locked
+      if (isLockedInChest) {
+        const pullStrength = 0.24;
+        reticle.x += (chestCenter.x - reticle.x) * pullStrength;
+        reticle.y += (chestCenter.y - reticle.y) * pullStrength;
+      }
+
+      // Check Overshoot: Reticle is higher than head top with no head hit
+      const isOvershoot = reticle.y < headCenter.y - headRadius - 15 && Math.abs(reticle.x - headCenter.x) < 70;
+      setOvershootActive(isOvershoot);
+
+      // Hit test current reticle position
+      const headDist = Math.hypot(reticle.x - headCenter.x, reticle.y - headCenter.y);
+      const isHeadHit = headDist <= headRadius;
+      const isChestHit =
+        !isHeadHit &&
+        Math.abs(reticle.x - chestCenter.x) <= chestHalfW &&
+        Math.abs(reticle.y - chestCenter.y) <= chestHalfH;
+      const isLegHit =
+        !isHeadHit &&
+        !isChestHit &&
+        Math.abs(reticle.x - legCenter.x) <= legHalfW &&
+        Math.abs(reticle.y - legCenter.y) <= legHalfH;
+
+      // 4. Weapon Shooting Mechanics (UMP-45 Rate: 98ms)
+      const fireInterval = 98;
+      if (isShooting.current && now - lastShotTime.current >= fireInterval) {
+        lastShotTime.current = now;
+
+        // Dynamic Bloom Dispersion
+        const maxBloom = stockLvl3 ? 14 : 28;
+        const bloomStep = stockLvl3 ? 1.4 : 2.8;
+        bloomRadius.current = Math.min(maxBloom, bloomRadius.current + bloomStep);
+
+        const jitterAngle = Math.random() * Math.PI * 2;
+        const jitterDist = Math.random() * bloomRadius.current;
+        const impactX = reticle.x + Math.cos(jitterAngle) * jitterDist;
+        const impactY = reticle.y + Math.sin(jitterAngle) * jitterDist;
+
+        // Re-eval impact with jitter
+        const bulletHeadDist = Math.hypot(impactX - headCenter.x, impactY - headCenter.y);
+        const bulletIsHead = bulletHeadDist <= headRadius;
+        const bulletIsChest =
+          !bulletIsHead &&
+          Math.abs(impactX - chestCenter.x) <= chestHalfW &&
+          Math.abs(impactY - chestCenter.y) <= chestHalfH;
+        const bulletIsLeg =
+          !bulletIsHead &&
+          !bulletIsChest &&
+          Math.abs(impactX - legCenter.x) <= legHalfW &&
+          Math.abs(impactY - legCenter.y) <= legHalfH;
+
+        // Audio
+        playGunshot(bulletIsHead);
+
+        // Tracer bullet line from weapon muzzle (bottom right)
+        tracersRef.current.push({
+          x1: w * 0.85,
+          y1: h * 0.95,
+          x2: impactX,
+          y2: impactY,
+          head: bulletIsHead,
+          born: now,
+        });
+
+        // Record Damage & Heatmap spot
+        if (bulletIsHead) {
+          const dmgVal = Math.floor(Math.random() * 8) + 137;
+          damagesRef.current.push({ x: impactX, y: impactY, value: dmgVal, type: "head", born: now });
+          setHeatHits((prev) => [...prev.slice(-30), { x: impactX - tx, y: impactY - ty, type: "head" }]);
+        } else if (bulletIsChest) {
+          const dmgVal = Math.floor(Math.random() * 4) + 24;
+          damagesRef.current.push({ x: impactX, y: impactY, value: dmgVal, type: "body", born: now });
+          setHeatHits((prev) => [...prev.slice(-30), { x: impactX - tx, y: impactY - ty, type: "chest" }]);
+        } else if (bulletIsLeg) {
+          const dmgVal = Math.floor(Math.random() * 3) + 18;
+          damagesRef.current.push({ x: impactX, y: impactY, value: dmgVal, type: "leg", born: now });
+          setHeatHits((prev) => [...prev.slice(-30), { x: impactX - tx, y: impactY - ty, type: "limb" }]);
+        } else if (isOvershoot) {
+          setHeatHits((prev) => [...prev.slice(-30), { x: impactX - tx, y: impactY - ty, type: "overshoot" }]);
+        }
+      }
+
+      // Natural bloom decay when not shooting
+      if (!isShooting.current && bloomRadius.current > 0) {
+        bloomRadius.current = Math.max(0, bloomRadius.current - dt * 40);
+      }
+
+      // 5. Render Tracers
+      tracersRef.current = tracersRef.current.filter((t) => now - t.born < 110);
+      for (const t of tracersRef.current) {
+        const age = (now - t.born) / 110;
+        ctx.strokeStyle = t.head
+          ? `rgba(255, 45, 60, ${1 - age})`
+          : `rgba(255, 204, 0, ${(1 - age) * 0.9})`;
+        ctx.lineWidth = t.head ? 2.5 : 1.6;
+        ctx.beginPath();
+        ctx.moveTo(t.x1, t.y1);
+        ctx.lineTo(t.x2, t.y2);
+        ctx.stroke();
+      }
+
+      // 6. Render Floating Damage Numbers
+      damagesRef.current = damagesRef.current.filter((d) => now - d.born < 700);
+      for (const d of damagesRef.current) {
+        const age = (now - d.born) / 700;
+        const isCrit = d.type === "head";
+        ctx.save();
+        ctx.font = isCrit ? "900 32px Orbitron" : "700 20px Orbitron";
+        ctx.textAlign = "center";
+        ctx.fillStyle = isCrit
+          ? `rgba(255, 35, 50, ${1 - age})`
+          : `rgba(255, 215, 0, ${1 - age})`;
+        ctx.shadowColor = isCrit ? "rgba(255, 30, 45, 0.9)" : "rgba(255, 200, 0, 0.8)";
+        ctx.shadowBlur = isCrit ? 16 : 8;
+        ctx.fillText(String(d.value), d.x, d.y - age * 45);
+        ctx.restore();
+      }
+
+      // 7. Render Free Fire Reticle (Aim Assist State Indicator)
+      const reticleColor = isHeadHit
+        ? "#ff2244" // Vermelho Capa
+        : isLockedInChest
+          ? "#ffcc00" // Amarelo Peito Lock
+          : isOvershoot
+            ? "#ffffff" // Branco Overshoot
+            : "#00f0ff"; // Ciano Busca
+
+      const reticleSize = 16 + bloomRadius.current;
+
+      ctx.save();
+      ctx.strokeStyle = reticleColor;
+      ctx.lineWidth = isHeadHit ? 2.4 : 1.6;
+      ctx.shadowColor = reticleColor;
+      ctx.shadowBlur = isHeadHit ? 14 : 8;
+
+      // Outer circle
+      ctx.beginPath();
+      ctx.arc(reticle.x, reticle.y, reticleSize, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Crosshair notches
+      const notchLen = 10;
+      ctx.beginPath();
+      ctx.moveTo(reticle.x - reticleSize - notchLen, reticle.y);
+      ctx.lineTo(reticle.x - reticleSize + 2, reticle.y);
+      ctx.moveTo(reticle.x + reticleSize - 2, reticle.y);
+      ctx.lineTo(reticle.x + reticleSize + notchLen, reticle.y);
+      ctx.moveTo(reticle.x, reticle.y - reticleSize - notchLen);
+      ctx.lineTo(reticle.x, reticle.y - reticleSize + 2);
+      ctx.moveTo(reticle.x, reticle.y + reticleSize - 2);
+      ctx.lineTo(reticle.x, reticle.y + reticleSize + notchLen);
+      ctx.stroke();
+
+      // Center dot
+      ctx.fillStyle = reticleColor;
+      ctx.beginPath();
+      ctx.arc(reticle.x, reticle.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Head dwell time counting
+      if (isShooting.current && isHeadHit) {
+        if (headDwellStart.current === null) headDwellStart.current = now;
+        headDwellTime.current += dt * 1000;
+      } else {
+        headDwellStart.current = null;
+      }
+
+      animId = requestAnimationFrame(loop);
     };
-    frame = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [sound]);
 
-  const local = (e: React.PointerEvent) => {
+    animId = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      obs.disconnect();
+    };
+  }, [sound, stockLvl3, strafeEnabled, preference]);
+
+  // Pointer event handlers - THE FIRE BUTTON IS THE ONLY DRAGGING TRIGGER!
+  const handleFirePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+
     const rect = arenaRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    return { x: Math.max(0, Math.min(rect.width, e.clientX - rect.left)), y: Math.max(0, Math.min(rect.height, e.clientY - rect.top)), t: performance.now() };
-  };
-  const move = (e: React.PointerEvent) => {
-    const next = local(e); if (!next) return;
-    if (shooting.current) {
-      const prev = pointer.current; const dy = next.y - prev.y;
-      const rect = arenaRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const torso = TARGETS.map(t => ({ x: t.x * rect.width, y: t.y * rect.height })).sort((a,b) => Math.hypot(next.x-a.x,next.y-a.y)-Math.hypot(next.x-b.x,next.y-b.y))[0];
-      const magnet = torso && Math.hypot(next.x - torso.x, next.y - torso.y) < 90 ? .16 : 0;
-      pointer.current = { x: next.x * (1-magnet) + (torso?.x ?? next.x) * magnet, y: Math.max(0, prev.y + dy * .82), t: next.t };
-      path.current.push(pointer.current);
-    } else pointer.current = next;
-  };
-  const start = (e: React.PointerEvent) => {
-    e.currentTarget.setPointerCapture(e.pointerId); shooting.current = true; path.current = []; dwell.current = 0; damages.current = []; tracers.current = []; const p = local(e); if (p) { pointer.current = p; path.current.push(p); } lastShot.current = 0;
-  };
-  const stop = () => {
-    if (!shooting.current) return; shooting.current = false;
-    const points = path.current; if (points.length < 2) return;
-    const first = points[0], last = points.at(-1); if (!first || !last) return;
-    const dt = Math.max(1, last.t - first.t), dist = Math.hypot(last.x-first.x,last.y-first.y);
-    const speed = dist / dt; const angle = Math.abs(90 - Math.abs(Math.atan2(first.y-last.y,last.x-first.x) * 180 / Math.PI));
-    const lineDx = last.x-first.x, lineDy = last.y-first.y, lineLen = Math.max(1, Math.hypot(lineDx,lineDy));
-    const jitter = points.reduce((sum,p)=>sum+Math.abs(lineDy*p.x-lineDx*p.y+last.x*first.y-last.y*first.x)/lineLen,0)/points.length;
-    const headshots = damages.current.filter(d=>d.head).length, bodyshots = damages.current.filter(d=>!d.head).length, shots = Math.max(1, tracers.current.length + damages.current.length);
-    const stability = Math.max(0, Math.min(100, Math.round(100-jitter*5-angle*1.4)));
-    const factor = speed > 1.6 || angle > 18 ? .88 : speed < .32 ? 1.08 : stability < 55 ? .95 : 1;
-    const fireButton = Math.max(10, Math.min(100, Math.round(baseFire + (speed > 1.6 ? 8 : speed < .32 ? -8 : stability < 55 ? 5 : 0))));
-    const result = { speed:+speed.toFixed(2), angle:+angle.toFixed(1), headDwell:Math.round(dwell.current), stability, accuracy:Math.min(100,Math.round((headshots+bodyshots)/shots*100)), headshots, bodyshots, factor, fireButton };
-    setMetrics(result); onResult(result);
-  };
-  const reset = () => { setMetrics(null); onResult(null); path.current=[]; damages.current=[]; tracers.current=[]; };
+    if (!rect) return;
 
-  return <div className="aimlab-shell">
-    <div ref={arenaRef} className="aimlab-arena" onPointerMove={move} onPointerDown={start} onPointerUp={stop} onPointerCancel={stop}>
-      <canvas ref={canvasRef} aria-label="Arena de treino com alvos e retícula" />
-      <div className="arena-top"><span><i /> UMP // AUTO</span><span>{locked ? "AIM ASSIST // LOCK" : "AIM ASSIST // SEARCH"}</span></div>
-      <button type="button" className="aim-fire" aria-label="Segure e arraste para disparar"><Crosshair /><small>FIRE</small></button>
-    </div>
-    <aside className="aim-telemetry">
-      <div className="telemetry-head"><div><small>LIVE ANALYSIS</small><h3>TELEMETRIA DE PUXADA</h3></div><Volume2 /></div>
-      <div className="aim-metrics">
-        <Metric label="VELOCIDADE" value={metrics ? `${metrics.speed}` : "0.00"} unit="PX/MS" />
-        <Metric label="DESVIO" value={metrics ? `${metrics.angle}°` : "0.0°"} unit="ÂNGULO" />
-        <Metric label="HEAD DWELL" value={metrics ? `${metrics.headDwell}` : "0"} unit="MS" />
-        <Metric label="PRECISÃO" value={metrics ? `${metrics.accuracy}` : "0"} unit="%" />
+    isShooting.current = true;
+    lastShotTime.current = 0;
+    damagesRef.current = [];
+    tracersRef.current = [];
+    pathPoints.current = [];
+    headDwellTime.current = 0;
+
+    fireButtonDragOrigin.current = { x: e.clientX, y: e.clientY };
+
+    // Initial drag point
+    pathPoints.current.push({
+      x: reticlePos.current.x,
+      y: reticlePos.current.y,
+      t: performance.now(),
+    });
+
+    setWarningMessage(null);
+  };
+
+  const handleFirePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isShooting.current || !fireButtonDragOrigin.current) return;
+    const origin = fireButtonDragOrigin.current;
+
+    // Raw delta moved from the fire button
+    const rawDx = e.clientX - origin.x;
+    const rawDy = e.clientY - origin.y;
+
+    // Apply Stretched Screen vector multiplier if enabled (makes X 28% faster and Y heavier)
+    const stretchX = stretchedScreen ? 1.28 : 1.0;
+    const stretchY = stretchedScreen ? 0.92 : 1.0; // requires more physical travel for vertical capa
+
+    const arenaRect = arenaRef.current?.getBoundingClientRect();
+    if (!arenaRect) return;
+
+    // Current reticle update based on drag delta
+    // Free Fire drag: upward swipe pulls crosshair upwards (inverted delta Y)
+    const nextX = Math.max(20, Math.min(arenaRect.width - 20, reticlePos.current.x + rawDx * stretchX * 0.18));
+    const nextY = Math.max(20, Math.min(arenaRect.height - 20, reticlePos.current.y + rawDy * stretchY * 0.18));
+
+    reticlePos.current = { x: nextX, y: nextY };
+
+    // Reset origin anchor to enable continuous relative drag
+    fireButtonDragOrigin.current = { x: e.clientX, y: e.clientY };
+
+    pathPoints.current.push({
+      x: nextX,
+      y: nextY,
+      t: performance.now(),
+    });
+  };
+
+  const handleFirePointerUp = () => {
+    if (!isShooting.current) return;
+    isShooting.current = false;
+    fireButtonDragOrigin.current = null;
+
+    // Process drag analytics
+    evaluateDragTelemetry();
+  };
+
+  // Clicking outside the fire button alerts the user that Native Free Fire only aims via Fire Button
+  const handleArenaPointerDown = (e: React.PointerEvent) => {
+    if (isShooting.current) return;
+    playDeniedBeep();
+    setWarningMessage("TRAVA NATIVA: SEGURE E ARRASTE O BOTÃO DE TIRO PARA MIRAR E ATIRAR!");
+    window.setTimeout(() => setWarningMessage(null), 2800);
+  };
+
+  // Evaluate gesture vector, scenario, stability, and biomechanics
+  const evaluateDragTelemetry = () => {
+    const pts = pathPoints.current;
+    if (pts.length < 3) return;
+
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const dt = Math.max(1, last.t - first.t);
+    const totalDist = Math.hypot(last.x - first.x, last.y - first.y);
+    const speed = +(totalDist / dt).toFixed(2);
+
+    // Initial acceleration in first 80ms
+    const earlyPts = pts.filter((p) => p.t - first.t <= 90);
+    const earlyLast = earlyPts.length > 1 ? earlyPts[earlyPts.length - 1] : first;
+    const earlyDist = Math.hypot(earlyLast.x - first.x, earlyLast.y - first.y);
+    const accel = +(earlyDist / Math.max(1, earlyLast.t - first.t)).toFixed(2);
+
+    // Pull pattern recognition (Linear vs J-Pull vs Meia-Lua)
+    let pattern: TrainingResult["pullPattern"] = "Linear";
+    let maxLateralDisplacement = 0;
+    let lateralDirectionChanges = 0;
+
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i].x - first.x;
+      if (Math.abs(dx) > maxLateralDisplacement) maxLateralDisplacement = Math.abs(dx);
+      if (i > 2) {
+        const prevDx = pts[i - 1].x - pts[i - 2].x;
+        const currDx = pts[i].x - pts[i - 1].x;
+        if (prevDx * currDx < -2) lateralDirectionChanges++;
+      }
+    }
+
+    if (maxLateralDisplacement > 45 && lateralDirectionChanges >= 1) {
+      pattern = "Puxada em J";
+    } else if (maxLateralDisplacement > 65) {
+      pattern = "Meia-Lua";
+    }
+    setDetectedPattern(pattern);
+
+    // Straight-line jitter analysis
+    const lineDx = last.x - first.x;
+    const lineDy = last.y - first.y;
+    const lineLen = Math.max(1, Math.hypot(lineDx, lineDy));
+    const jitter =
+      pts.reduce(
+        (sum, p) =>
+          sum + Math.abs(lineDy * p.x - lineDx * p.y + last.x * first.y - last.y * first.x) / lineLen,
+        0
+      ) / pts.length;
+
+    const stability = Math.max(0, Math.min(100, Math.round(100 - jitter * 6.5)));
+
+    // Damage tally
+    const headshots = damagesRef.current.filter((d) => d.type === "head").length;
+    const bodyshots = damagesRef.current.filter((d) => d.type === "body" || d.type === "leg").length;
+    const totalHits = headshots + bodyshots;
+    const overshoots = heatHits.filter((h) => h.type === "overshoot").length;
+    const totalSamples = Math.max(1, totalHits + overshoots);
+
+    const hsRate = Math.round((headshots / totalSamples) * 100);
+    const chestLockRate = Math.round((bodyshots / totalSamples) * 100);
+    const overshootRate = Math.round((overshoots / totalSamples) * 100);
+
+    // Scenario classification
+    let scenario: TrainingResult["scenario"] = "Preso no Peito";
+    if (overshootRate > 35) {
+      scenario = "Overshoot";
+    } else if (hsRate > 50) {
+      // Check if started low (leg/chest) then head
+      const hadEarlyBody = damagesRef.current.slice(0, 2).some((d) => d.type === "leg" || d.type === "body");
+      scenario = hadEarlyBody ? "Puxada Pé-Cabeça" : "Capa Cravado";
+    }
+    setCurrentScenario(scenario);
+
+    // Biomechanical correction factor
+    let factor = 1.0;
+    let recButton = fireButtonSize;
+    let recButtonY = fireButtonYPos;
+
+    if (scenario === "Overshoot" || speed > 2.2) {
+      factor = 0.88; // Lower sensitivity
+      recButton = Math.min(85, fireButtonSize + 8);
+    } else if (scenario === "Preso no Peito" || speed < 0.4) {
+      factor = 1.12; // Boost sensitivity
+      recButton = Math.max(30, fireButtonSize - 6);
+      recButtonY = Math.max(12, fireButtonYPos - 4);
+    } else if (stability < 55) {
+      factor = 0.95;
+    }
+
+    const result: TrainingResult = {
+      speed,
+      accel,
+      headDwell: Math.round(headDwellTime.current),
+      stability,
+      accuracy: Math.min(100, Math.round((totalHits / Math.max(1, totalHits + overshoots)) * 100)),
+      headshots,
+      bodyshots,
+      overshoots,
+      factor,
+      fireButton: recButton,
+      fireButtonY: recButtonY,
+      pullPattern: pattern,
+      scenario,
+      hsRate,
+      chestLockRate,
+      overshootRate,
+    };
+
+    setMetrics(result);
+    onResult(result);
+  };
+
+  const handleReset = () => {
+    setMetrics(null);
+    setHeatHits([]);
+    onResult(null);
+    damagesRef.current = [];
+    tracersRef.current = [];
+    pathPoints.current = [];
+    bloomRadius.current = 0;
+    reticlePos.current = { x: 300, y: 260 };
+  };
+
+  return (
+    <div className="aimlab-shell">
+      {/* Playable Arena */}
+      <div
+        ref={arenaRef}
+        className="aimlab-arena"
+        onPointerDown={handleArenaPointerDown}
+      >
+        <canvas ref={canvasRef} aria-label="Arena balística Free Fire" />
+
+        {/* HUD Top Bar */}
+        <div className="arena-top">
+          <span>
+            <i className={aimAssistLock ? "status-pulse-gold" : "status-pulse"} />
+            UMP-45 // NATIVE ENGINE (98ms CYCLE)
+          </span>
+          <div className="arena-top-badges">
+            <span className={`hud-badge ${stockLvl3 ? "is-active" : ""}`}>
+              <Shield size={12} />
+              {stockLvl3 ? "CORONHA NVL 3" : "SEM CORONHA"}
+            </span>
+            <span className={`hud-badge ${strafeEnabled ? "is-active" : ""}`}>
+              <MoveHorizontal size={12} />
+              {strafeEnabled ? "STRAFE ATIVO" : "ALVO FIXO"}
+            </span>
+            <span
+              className={`hud-badge ${
+                aimAssistLock
+                  ? "is-locked"
+                  : overshootActive
+                    ? "is-overshoot"
+                    : "is-ready"
+              }`}
+            >
+              {aimAssistLock
+                ? "AIM ASSIST // IMÃ NO PEITO"
+                : overshootActive
+                  ? "OVERSHOOT // PASSOU DO CAPA"
+                  : "MIRA // PRONTA"}
+            </span>
+          </div>
+        </div>
+
+        {/* Warning notification when clicking outside button */}
+        {warningMessage && (
+          <div className="native-aim-alert">
+            <Zap size={16} />
+            <span>{warningMessage}</span>
+          </div>
+        )}
+
+        {/* THE EXCLUSIVE FLOATING FIRE BUTTON (HUD DRAG CONTROLLER) */}
+        <div
+          className="aim-fire-container"
+          style={{
+            bottom: `${fireButtonYPos}%`,
+            right: "12%",
+          }}
+        >
+          <button
+            type="button"
+            className={`aim-fire-btn ${isShooting.current ? "is-firing" : ""}`}
+            style={{
+              width: `${Math.max(50, Math.min(110, fireButtonSize * 1.1))}px`,
+              height: `${Math.max(50, Math.min(110, fireButtonSize * 1.1))}px`,
+            }}
+            onPointerDown={handleFirePointerDown}
+            onPointerMove={handleFirePointerMove}
+            onPointerUp={handleFirePointerUp}
+            onPointerCancel={handleFirePointerUp}
+            aria-label="Pressione e arraste para puxar o capa"
+          >
+            <Crosshair size={Math.max(22, fireButtonSize * 0.42)} />
+            <small>PUXAR CAPA</small>
+            <div className="fire-btn-ring" />
+          </button>
+          <span className="fire-btn-label">
+            BOTÃO {fireButtonSize}% · Y {fireButtonYPos}%
+          </span>
+        </div>
+
+        {/* Controls Overlay in Arena Corner */}
+        <div className="arena-quick-toggles">
+          <button
+            type="button"
+            className={`toggle-chip ${stockLvl3 ? "chip-active" : ""}`}
+            onClick={() => setStockLvl3(!stockLvl3)}
+            title="Reduz a dispersão do tiro contínuo facilitando capa tardio"
+          >
+            <Shield size={13} />
+            CORONHA 3
+          </button>
+          <button
+            type="button"
+            className={`toggle-chip ${strafeEnabled ? "chip-active" : ""}`}
+            onClick={() => setStrafeEnabled(!strafeEnabled)}
+            title="Boneco anda de um lado para o outro testando rastreamento vetorial"
+          >
+            <MoveHorizontal size={13} />
+            STRAFE
+          </button>
+        </div>
       </div>
-      <div className="stability-meter"><span>ESTABILIDADE CONTRA TREMOR <b>{metrics?.stability ?? 0}%</b></span><div><i style={{ width:`${metrics?.stability ?? 0}%` }} /></div></div>
-      <div className="hit-summary"><span>CORPO <b>{metrics?.bodyshots ?? 0}</b></span><span>CAPA <b>{metrics?.headshots ?? 0}</b></span><span>BOTÃO <b>{metrics?.fireButton ?? baseFire}%</b></span></div>
-      <p className="aim-diagnostic">{!metrics ? "Mova a retícula, segure na arena e arraste para cima. A assistência segura o peito; vença a resistência e mantenha na cabeça." : metrics.factor < .9 ? "OVERFLICK DETECTADO — sensibilidade reduzida em 12% e botão ampliado para ganhar controle." : metrics.factor > 1 ? "PUXADA LENTA — Red Dot elevada e botão reduzido para acelerar o deslocamento." : metrics.stability < 55 ? "JITTER DETECTADO — estabilização recomendada e ponteiro em 7/10." : "CAPA CONSISTENTE — perfil de puxada equilibrado e pronto para salvar."}</p>
-      <button className="ui-button ui-button-outline" onClick={reset}><RotateCcw /> RECALIBRAR ARENA</button>
-    </aside>
-  </div>;
+
+      {/* Telemetry & Biomechanical Diagnostic Aside */}
+      <aside className="aim-telemetry">
+        <div className="telemetry-head">
+          <div>
+            <small>BIOMECHANICAL SCANNER // FF 04.7</small>
+            <h3>TELEMETRIA DE PUXADA NATIVA</h3>
+          </div>
+          <Flame className="text-primary animate-pulse" size={20} />
+        </div>
+
+        {/* 4 Essential FF Metrics */}
+        <div className="aim-metrics">
+          <MetricBlock
+            label="VELOCIDADE FLICK"
+            value={metrics ? `${metrics.speed}` : "0.00"}
+            unit="PX/MS"
+          />
+          <MetricBlock
+            label="ACELERAÇÃO INICIAL"
+            value={metrics ? `${metrics.accel}` : "0.00"}
+            unit="FORÇA"
+          />
+          <MetricBlock
+            label="PADRÃO DETECTADO"
+            value={metrics ? metrics.pullPattern : "--"}
+            unit="GESTO"
+          />
+          <MetricBlock
+            label="HEAD DWELL (TEMPO NA CABEÇA)"
+            value={metrics ? `${metrics.headDwell}` : "0"}
+            unit="MS"
+          />
+        </div>
+
+        {/* Hitbox Scenario Result */}
+        <div className="scenario-card">
+          <small>CENÁRIO DA PUXADA:</small>
+          <strong>
+            {metrics ? metrics.scenario : "SEGURE O BOTÃO E ARRASTE"}
+          </strong>
+          <p>
+            {metrics?.scenario === "Preso no Peito" &&
+              "⚠️ Força de aceleração insuficiente para quebrar a gravidade magnética da Garena no peito. Puxe com flick mais rápido ou use botão menor."}
+            {metrics?.scenario === "Capa Cravado" &&
+              "⚡ Arrasto cirúrgico perfeito! Aceleração ideal rompeu o imã e cravou na cabeça com dano vermelho limpo."}
+            {metrics?.scenario === "Puxada Pé-Cabeça" &&
+              "🎯 Varredura completa: iniciou nos membros e finalizou na cabeça. Excelente controle de recoil progressivo."}
+            {metrics?.scenario === "Overshoot" &&
+              "⚠️ Arrasto explosivo em excesso: a mira ultrapassou o topo da cabeça e espalhou tiros no ar. Aumente o botão ou reduza a Geral."}
+            {!metrics &&
+              "A mira é travada no botão flutuante. Pressione e arraste com aceleração para vencer o imã do peito."}
+          </p>
+        </div>
+
+        {/* Heatmap Wireframe & Stats */}
+        <div className="heatmap-section">
+          <div className="heatmap-display">
+            <svg viewBox="-80 -120 160 220" className="heatmap-svg" aria-label="Mapa de calor">
+              {/* Head */}
+              <circle cx="0" cy="-84" r="22" className="heat-body-part" />
+              {/* Torso */}
+              <rect x="-34" y="-54" width="68" height="74" rx="8" className="heat-body-part" />
+              {/* Legs */}
+              <rect x="-28" y="24" width="24" height="60" rx="4" className="heat-body-part" />
+              <rect x="4" y="24" width="24" height="60" rx="4" className="heat-body-part" />
+              {/* Overshoot zone */}
+              <line x1="-50" y1="-112" x2="50" y2="-112" stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
+              <text x="0" y="-115" fill="#888" fontSize="8" textAnchor="middle">ZONA OVERSHOOT</text>
+
+              {/* Render hits */}
+              {heatHits.map((h, i) => (
+                <circle
+                  key={i}
+                  cx={h.x}
+                  cy={h.y}
+                  r={h.type === "head" ? 4.5 : 3.5}
+                  className={`heat-dot ${
+                    h.type === "head"
+                      ? "heat-head"
+                      : h.type === "chest"
+                        ? "heat-chest"
+                        : h.type === "overshoot"
+                          ? "heat-overshoot"
+                          : "heat-limb"
+                  }`}
+                />
+              ))}
+            </svg>
+
+            <div className="heatmap-legend">
+              <span className="legend-head">
+                <i /> CAPA ({metrics?.headshots ?? 0})
+              </span>
+              <span className="legend-chest">
+                <i /> PEITO ({metrics?.bodyshots ?? 0})
+              </span>
+              <span className="legend-overshoot">
+                <i /> OVERSHOOT ({metrics?.overshoots ?? 0})
+              </span>
+              <span className="legend-hs-rate">
+                HS RATE: <b>{metrics?.hsRate ?? 0}%</b>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Stability Meter */}
+        <div className="stability-meter">
+          <span>
+            ESTABILIDADE CONTRA TREMOR / JITTER <b>{metrics?.stability ?? 0}%</b>
+          </span>
+          <div>
+            <i style={{ width: `${metrics?.stability ?? 0}%` }} />
+          </div>
+        </div>
+
+        {/* Recommendation & Reset */}
+        <button
+          type="button"
+          className="ui-button ui-button-outline w-full"
+          onClick={handleReset}
+        >
+          <RotateCcw size={15} /> RESETAR TELEMETRIA
+        </button>
+      </aside>
+    </div>
+  );
 }
 
-function Metric({ label, value, unit }: { label:string; value:string; unit:string }) { return <div><small>{label}</small><strong>{value}</strong><span>{unit}</span></div>; }
+function MetricBlock({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+}) {
+  return (
+    <div className="metric-block">
+      <small>{label}</small>
+      <strong>{value}</strong>
+      <span>{unit}</span>
+    </div>
+  );
+}
+
+// Function to draw Free Fire character dummy with cyber anatomical styling
+function drawFreeFireDummy(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  preference: Preference
+) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  const primaryStroke =
+    preference === "high"
+      ? "rgba(255, 45, 65, 0.75)"
+      : preference === "low"
+        ? "rgba(0, 240, 255, 0.75)"
+        : "rgba(255, 204, 0, 0.75)";
+
+  const chestFill = "rgba(18, 24, 32, 0.88)";
+  const headFill = "rgba(26, 12, 16, 0.85)";
+
+  // 1. Head (Cabeça - 22px radius)
+  ctx.fillStyle = headFill;
+  ctx.strokeStyle = "rgba(255, 50, 65, 0.85)";
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.arc(0, -84, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Head target cross
+  ctx.strokeStyle = "rgba(255, 50, 65, 0.4)";
+  ctx.beginPath();
+  ctx.moveTo(0, -100);
+  ctx.lineTo(0, -68);
+  ctx.moveTo(-16, -84);
+  ctx.lineTo(16, -84);
+  ctx.stroke();
+
+  // 2. Torso (Peito - Magnet Target)
+  ctx.fillStyle = chestFill;
+  ctx.strokeStyle = primaryStroke;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(-34, -54, 68, 74, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  // Magnet core icon inside chest
+  ctx.fillStyle = "rgba(255, 204, 0, 0.18)";
+  ctx.beginPath();
+  ctx.arc(0, -18, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 204, 0, 0.6)";
+  ctx.stroke();
+
+  // 3. Legs
+  ctx.fillStyle = chestFill;
+  ctx.strokeStyle = "rgba(143, 222, 230, 0.35)";
+  ctx.beginPath();
+  ctx.roundRect(-28, 24, 24, 60, 4);
+  ctx.roundRect(4, 24, 24, 60, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // 4. Arms
+  ctx.beginPath();
+  ctx.roundRect(-48, -48, 11, 62, 3);
+  ctx.roundRect(37, -48, 11, 62, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  // Hitbox text label
+  ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.font = "600 9px Orbitron";
+  ctx.textAlign = "center";
+  ctx.fillText("TARGET DUMMY", 0, 102);
+
+  ctx.restore();
+}

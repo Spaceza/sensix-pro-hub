@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Free Fire Aim Lab & Hyper-Sensitivity Engine // Awwwards Elite Edition</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- GSAP CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --font-display: 'Orbitron', sans-serif;
+      --font-body: 'Rajdhani', sans-serif;
+      --theme-primary: #ffcc00;
+      --theme-secondary: #00f0ff;
+      --theme-danger: #ff2244;
+      --theme-speed: 0.3s;
+      --theme-blur: 16px;
+    }
+
+    body {
+      margin: 0;
+      background: #06090d;
+      color: #f1f7fc;
+      font-family: var(--font-body);
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .theme-high {
+      --theme-primary: #ff1f3d;
+      --theme-secondary: #ff8800;
+      --theme-danger: #ff0033;
+      --theme-speed: 0.12s;
+      --theme-blur: 8px;
+      filter: contrast(1.16) saturate(1.28);
+    }
+
+    .theme-low {
+      --theme-primary: #00f0ff;
+      --theme-secondary: #3b82f6;
+      --theme-danger: #f43f5e;
+      --theme-speed: 0.65s;
+      --theme-blur: 24px;
+      filter: contrast(1.04) brightness(0.98);
+    }
+
+    .theme-mid {
+      --theme-primary: #ffcc00;
+      --theme-secondary: #00f0ff;
+      --theme-danger: #ff2244;
+      --theme-speed: 0.32s;
+      --theme-blur: 16px;
+      filter: none;
+    }
+
+    .glass-panel {
+      background: rgba(14, 20, 28, 0.82);
+      backdrop-filter: blur(var(--theme-blur));
+      border: 1px solid rgba(143, 222, 230, 0.16);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(255, 255, 255, 0.02);
+      clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+      transition: border-color var(--theme-speed), transform var(--theme-speed);
+    }
+
+    .glass-panel:hover {
+      border-color: rgba(255, 204, 0, 0.4);
+    }
+
+    .theme-high .glass-panel:hover {
+      border-color: rgba(255, 31, 61, 0.6);
+    }
+
+    .theme-low .glass-panel:hover {
+      border-color: rgba(0, 240, 255, 0.6);
+    }
+
+    @keyframes sine-float {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-8px) rotate(0.8deg); }
+    }
+
+    @keyframes fire-pulse {
+      0%, 100% { box-shadow: 0 0 25px var(--theme-primary), inset 0 0 15px var(--theme-primary); transform: scale(0.95); }
+      50% { box-shadow: 0 0 45px #ff2244, inset 0 0 25px #ff2244; transform: scale(1.02); }
+    }
+
+    @keyframes ring-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .floating-gear {
+      animation: sine-float 4.8s ease-in-out infinite;
+    }
+
+    /* Arena & Fire Button */
+    .aim-fire-btn {
+      position: relative;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--theme-primary);
+      border-radius: 50%;
+      color: #fff;
+      background: radial-gradient(circle, color-mix(in srgb, var(--theme-primary) 50%, #000) 0%, rgba(8, 12, 18, 0.92) 75%);
+      box-shadow: 0 0 30px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+      cursor: grab;
+      touch-action: none;
+      transition: filter 0.1s;
+    }
+
+    .aim-fire-btn:active, .aim-fire-btn.is-firing {
+      cursor: grabbing;
+      filter: brightness(1.3);
+      border-color: #ff2244;
+      animation: fire-pulse 0.45s infinite;
+    }
+
+    .fire-btn-ring {
+      position: absolute;
+      inset: -6px;
+      border: 1px dashed var(--theme-primary);
+      border-radius: 50%;
+      pointer-events: none;
+      animation: ring-spin 14s linear infinite;
+      opacity: 0.6;
+    }
+
+    /* Range slider styling */
+    input[type=range] {
+      -webkit-appearance: none;
+      height: 4px;
+      background: rgba(143, 222, 230, 0.15);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--theme-primary);
+      box-shadow: 0 0 10px var(--theme-primary);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    #bgCanvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+  </style>
+</head>
+<body class="theme-mid relative min-h-screen">
+  <!-- Dynamic Background Canvas (Sparks + 3D Grid) -->
+  <canvas id="bgCanvas"></canvas>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 py-8">
+    <!-- Top Bar -->
+    <header class="flex items-center justify-between py-4 border-b border-white/10 mb-8 backdrop-blur-md">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 border border-amber-400 flex items-center justify-center text-amber-400 font-bold shadow-[0_0_15px_rgba(255,204,0,0.3)]">
+          ✕
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-wider font-['Orbitron'] text-white">
+            AIM LAB <span class="text-amber-400">// HX</span>
+          </h1>
+          <p class="text-xs text-cyan-400 font-mono tracking-widest">FREE FIRE HYPER-SENSITIVITY ENGINE</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-xs font-mono px-3 py-1 bg-white/5 border border-white/10 text-emerald-400 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> GARENA V4.7 BALÍSTICA NATIVA
+        </span>
+        <button id="soundToggle" class="px-3 py-1.5 border border-white/20 text-xs font-mono hover:border-amber-400 transition">
+          🔊 SOM ATIVO
+        </button>
+      </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="grid lg:grid-cols-12 gap-8 items-center mb-12">
+      <div class="lg:col-span-8">
+        <p class="text-xs font-mono text-cyan-400 tracking-widest uppercase mb-2 flex items-center gap-2">
+          <span class="w-8 h-px bg-cyan-400"></span> E-SPORTS BIOMECHANICAL TRAINING
+        </p>
+        <h2 class="text-4xl md:text-6xl font-extrabold font-['Orbitron'] leading-tight mb-4">
+          DOMINE O <em class="text-amber-400 not-italic text-glow">PRIMEIRO TIRO.</em>
+        </h2>
+        <p class="text-gray-400 text-lg max-w-2xl mb-6">
+          A única réplica biomecânica 1:1 da engine da Garena: a mira é acionada EXCLUSIVAMENTE pelo botão de tiro,
+          com força magnética no peito e aceleração não-linear para romper o magnetismo e cravar na cabeça.
+        </p>
+
+        <!-- Floating Weapon Spec -->
+        <div class="floating-gear glass-panel p-4 max-w-xl flex items-center gap-4 border-l-4 border-amber-400">
+          <div class="text-2xl">🔥</div>
+          <div>
+            <h4 class="text-sm font-bold font-['Orbitron'] text-white">UMP-45 CYBER TACTICAL // BALÍSTICA ATIVA</h4>
+            <p class="text-xs text-gray-400">Ciclo de Tiro: 98ms · Dano Peito: 24 · Dano Capa: 137+ · Coronha Nvl 3 (-48% Bloom)</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="lg:col-span-4 flex justify-center">
+        <div class="glass-panel p-6 w-full max-w-xs text-center border border-amber-400/30">
+          <div class="text-xs text-gray-400 font-mono mb-2">TELEMETRIA GERAL</div>
+          <div id="heroGeralDisplay" class="text-6xl font-black font-['Orbitron'] text-amber-400 mb-2">184</div>
+          <div class="text-xs text-gray-400 font-mono tracking-wider">SENSI RECOMENDADA / 200</div>
+          <div class="grid grid-cols-2 gap-2 mt-4 text-xs font-mono text-left border-t border-white/10 pt-4">
+            <div>EIXO X: <b id="heroXDisplay" class="text-white">1.12</b></div>
+            <div>EIXO Y: <b id="heroYDisplay" class="text-white">1.24</b></div>
+            <div>LATÊNCIA: <b class="text-cyan-400">18ms</b></div>
+            <div>STATUS: <b class="text-emerald-400">CALIBRADO</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Simulator & Training Range -->
+    <section class="glass-panel p-6 mb-12">
+      <div class="flex flex-wrap items-center justify-between gap-4 mb-4 pb-4 border-b border-white/10">
+        <div>
+          <span class="text-xs font-mono text-amber-400 tracking-wider">01 // ARENA DE COMBATE</span>
+          <h3 class="text-xl font-bold font-['Orbitron']">SIMULADOR DE PUXADA NATIVA FREE FIRE</h3>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="stockToggle" class="px-3 py-1.5 border border-white/20 text-xs font-mono bg-white/5 hover:border-amber-400 transition flex items-center gap-1.5 text-amber-400">
+            🛡️ CORONHA NVL 3 (ATIVA)
+          </button>
+          <button id="strafeToggle" class="px-3 py-1.5 border border-white/20 text-xs font-mono bg-white/5 hover:border-amber-400 transition flex items-center gap-1.5">
+            ↔️ ALVO EM STRAFE (OFF)
+          </button>
+          <button id="resetRangeBtn" class="px-3 py-1.5 border border-white/20 text-xs font-mono hover:bg-white/10 transition">
+            🔄 REINICIAR
+          </button>
+        </div>
+      </div>
+
+      <!-- Arena Viewport & Telemetry Grid -->
+      <div class="grid lg:grid-cols-12 gap-6">
+        <!-- Interactive Canvas Range -->
+        <div class="lg:col-span-8 relative min-h-[500px] border border-white/10 rounded overflow-hidden bg-black/60" id="arenaContainer">
+          <canvas id="arenaCanvas" class="absolute inset-0 w-full h-full"></canvas>
+
+          <!-- Warning overlay when clicking screen instead of fire button -->
+          <div id="aimAlert" class="hidden absolute top-6 left-1/2 -translate-x-1/2 bg-red-950/90 border border-red-500 text-red-300 text-xs font-mono px-4 py-2 rounded shadow-[0_0_20px_rgba(255,0,0,0.5)] z-20 pointer-events-none">
+            ⚠️ TRAVA NATIVA: SEGURE E ARRASTE O BOTÃO DE TIRO FLUTUANTE!
+          </div>
+
+          <!-- Top status inside arena -->
+          <div class="absolute top-4 left-4 right-4 flex items-center justify-between text-[11px] font-mono text-gray-400 pointer-events-none z-10">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#ffcc00]"></span>
+              UMP-45 // CICLO 98MS
+            </span>
+            <span id="magnetStatusBadge" class="px-2 py-0.5 border border-white/10 bg-black/50 text-cyan-400">
+              MIRA // PRONTA
+            </span>
+          </div>
+
+          <!-- THE EXCLUSIVE FLOATING FIRE BUTTON -->
+          <div id="fireBtnContainer" class="absolute bottom-[22%] right-[14%] flex flex-col items-center gap-2 z-30 select-none">
+            <button id="fireButton" class="aim-fire-btn w-20 h-20" aria-label="Segure e arraste para puxar o capa">
+              <span class="text-2xl font-bold">🎯</span>
+              <span class="text-[9px] font-bold font-['Orbitron'] tracking-wider">PUXAR</span>
+              <div class="fire-btn-ring"></div>
+            </button>
+            <span class="text-[9px] font-mono text-gray-400 bg-black/60 px-2 py-0.5 rounded border border-white/10">
+              BOTÃO <span id="btnSizeReadout">50</span>% · Y <span id="btnYReadout">22</span>%
+            </span>
+          </div>
+        </div>
+
+        <!-- Real-time Telemetry & Anatomical Heatmap -->
+        <div class="lg:col-span-4 flex flex-col justify-between gap-4">
+          <!-- 4 Biomechanical Metrics -->
+          <div class="grid grid-cols-2 gap-2 text-center">
+            <div class="p-3 bg-white/5 border border-white/10 rounded">
+              <span class="text-[10px] text-gray-400 font-mono block">VELOCIDADE FLICK</span>
+              <b id="teleSpeed" class="text-xl font-bold font-['Orbitron'] text-white">0.00</b>
+              <span class="text-[9px] text-gray-500 font-mono block">PX/MS</span>
+            </div>
+            <div class="p-3 bg-white/5 border border-white/10 rounded">
+              <span class="text-[10px] text-gray-400 font-mono block">ACELERAÇÃO</span>
+              <b id="teleAccel" class="text-xl font-bold font-['Orbitron'] text-amber-400">0.00</b>
+              <span class="text-[9px] text-gray-500 font-mono block">FORÇA</span>
+            </div>
+            <div class="p-3 bg-white/5 border border-white/10 rounded">
+              <span class="text-[10px] text-gray-400 font-mono block">PADRÃO GESTUAL</span>
+              <b id="telePattern" class="text-sm font-bold font-['Orbitron'] text-cyan-400 mt-1 block">LINEAR</b>
+              <span class="text-[9px] text-gray-500 font-mono block">PUXADA</span>
+            </div>
+            <div class="p-3 bg-white/5 border border-white/10 rounded">
+              <span class="text-[10px] text-gray-400 font-mono block">HEAD DWELL</span>
+              <b id="teleDwell" class="text-xl font-bold font-['Orbitron'] text-red-400">0</b>
+              <span class="text-[9px] text-gray-500 font-mono block">MS NA CABEÇA</span>
+            </div>
+          </div>
+
+          <!-- Scenario Diagnostic Card -->
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] font-mono text-gray-400 block mb-1">CENÁRIO DA PUXADA:</span>
+            <h4 id="scenarioTitle" class="text-base font-bold font-['Orbitron'] text-amber-400 mb-2">PRESO NO PEITO</h4>
+            <p id="scenarioDesc" class="text-xs text-gray-300 leading-relaxed">
+              Arraste o botão de tiro com aceleração inicial explosiva para vencer a atração magnética da Garena no peito.
+            </p>
+          </div>
+
+          <!-- Anatomical Heatmap SVG -->
+          <div class="p-4 bg-black/50 border border-white/10 rounded flex items-center gap-4">
+            <svg id="heatmapSvg" viewBox="-80 -120 160 220" class="w-28 h-36 border border-white/10 bg-black/60 rounded">
+              <circle cx="0" cy="-84" r="22" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.2)"/>
+              <rect x="-34" y="-54" width="68" height="74" rx="6" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.2)"/>
+              <rect x="-28" y="24" width="24" height="60" rx="3" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.2)"/>
+              <rect x="4" y="24" width="24" height="60" rx="3" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.2)"/>
+              <line x1="-50" y1="-112" x2="50" y2="-112" stroke="rgba(255,255,255,0.2)" stroke-dasharray="2 2"/>
+              <!-- Dynamic dots appended here -->
+              <g id="heatmapDots"></g>
+            </svg>
+            <div class="flex-1 text-xs font-mono space-y-1">
+              <div class="flex items-center justify-between text-red-400">
+                <span>🔴 CAPA:</span> <b id="countHead">0</b>
+              </div>
+              <div class="flex items-center justify-between text-amber-400">
+                <span>🟡 PEITO:</span> <b id="countChest">0</b>
+              </div>
+              <div class="flex items-center justify-between text-white">
+                <span>⚪ OVERSHOOT:</span> <b id="countOver">0</b>
+              </div>
+              <div class="flex items-center justify-between text-cyan-400 pt-2 border-t border-white/10">
+                <span>HS RATE:</span> <b id="rateHs">0%</b>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Hardware Matrix & Sensitivity Sliders -->
+    <section class="glass-panel p-6 mb-12">
+      <div class="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-white/10">
+        <div>
+          <span class="text-xs font-mono text-cyan-400 tracking-wider">02 // HARDWARE & BALLISTICS MATRIX</span>
+          <h3 class="text-xl font-bold font-['Orbitron']">MATRIZ DE SENSIBILIDADE REATIVA</h3>
+        </div>
+
+        <!-- 3 Modes Toggle -->
+        <div class="flex border border-white/20 p-1 rounded bg-black/40 text-xs font-mono">
+          <button id="modeSniper" class="px-4 py-2 rounded transition hover:text-cyan-400">
+            BAIXA (SNIPER)
+          </button>
+          <button id="modeHybrid" class="px-4 py-2 rounded bg-amber-400 text-black font-bold transition">
+            MÉDIA (HÍBRIDO)
+          </button>
+          <button id="modeRush" class="px-4 py-2 rounded transition hover:text-red-400">
+            ALTA (RUSH)
+          </button>
+        </div>
+      </div>
+
+      <!-- Stretched Screen Switch -->
+      <div class="p-4 bg-white/5 border border-white/10 rounded mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h4 class="text-sm font-bold font-['Orbitron'] flex items-center gap-2">
+            📺 RESOLUÇÃO ESTICADA (TELA ESTICADA 4:3)
+          </h4>
+          <p class="text-xs text-gray-400 max-w-xl">
+            Aumenta a velocidade do eixo X em +28%. O capa vertical fica matematicamente mais pesado e exige compensação de arrasto.
+          </p>
+        </div>
+        <button id="stretchToggle" class="px-4 py-2 border border-white/20 text-xs font-mono bg-white/5 hover:border-amber-400 transition">
+          DESATIVADA (1:1)
+        </button>
+      </div>
+
+      <!-- Form Inputs Grid -->
+      <div class="grid md:grid-cols-3 gap-6 mb-8 text-sm">
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">FPS (TAXA DE QUADROS)</label>
+          <select id="fpsSelect" class="w-full bg-black/60 border border-white/20 p-2.5 rounded text-white font-mono">
+            <option value="60">60 FPS (Padrão)</option>
+            <option value="90">90 FPS (Fluido)</option>
+            <option value="120" selected>120 FPS (Competitivo)</option>
+            <option value="144">144 FPS (Ultra)</option>
+            <option value="240">240 FPS (Flagship)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TOUCH SAMPLING RATE</label>
+          <select id="touchSelect" class="w-full bg-black/60 border border-white/20 p-2.5 rounded text-white font-mono">
+            <option value="120">120Hz (Básico)</option>
+            <option value="240" selected>240Hz (Intermediário)</option>
+            <option value="360">360Hz (Game Turbo)</option>
+            <option value="480">480Hz (Gamer)</option>
+            <option value="720">720Hz (ROG Phone / Hyper)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">DPI (LARGURA MÍNIMA)</label>
+          <input id="dpiInput" type="number" value="411" min="120" max="1200" class="w-full bg-black/60 border border-white/20 p-2.5 rounded text-white font-mono" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs font-mono text-gray-400 mb-1">
+            <span>TAMANHO DO BOTÃO</span>
+            <b id="btnSizeVal" class="text-amber-400">50%</b>
+          </div>
+          <input id="btnSizeSlider" type="range" min="10" max="100" value="50" class="w-full" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs font-mono text-gray-400 mb-1">
+            <span>ALTURA Y DO BOTÃO</span>
+            <b id="btnYVal" class="text-amber-400">22%</b>
+          </div>
+          <input id="btnYSlider" type="range" min="10" max="65" value="22" class="w-full" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs font-mono text-gray-400 mb-1">
+            <span>VELOCIDADE DO PONTEIRO</span>
+            <b id="pointerVal" class="text-amber-400">5/10</b>
+          </div>
+          <input id="pointerSlider" type="range" min="1" max="10" value="5" class="w-full" />
+        </div>
+      </div>
+
+      <!-- Real Calculated In-Game Sensitivity Numbers -->
+      <div class="border-t border-white/10 pt-6">
+        <h4 class="text-xs font-mono text-amber-400 tracking-wider mb-4">SENSIBILIDADES FINAIS RECOMENDADAS:</h4>
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-3 text-center">
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] text-gray-400 font-mono block">GERAL</span>
+            <strong id="outGeral" class="text-2xl font-bold font-['Orbitron'] text-amber-400">184</strong>
+          </div>
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] text-gray-400 font-mono block">RED DOT</span>
+            <strong id="outRedDot" class="text-2xl font-bold font-['Orbitron'] text-white">178</strong>
+          </div>
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] text-gray-400 font-mono block">MIRA 2X</span>
+            <strong id="out2x" class="text-2xl font-bold font-['Orbitron'] text-white">164</strong>
+          </div>
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] text-gray-400 font-mono block">MIRA 4X</span>
+            <strong id="out4x" class="text-2xl font-bold font-['Orbitron'] text-white">149</strong>
+          </div>
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] text-gray-400 font-mono block">AWM</span>
+            <strong id="outAwm" class="text-2xl font-bold font-['Orbitron'] text-white">77</strong>
+          </div>
+          <div class="p-4 bg-white/5 border border-white/10 rounded">
+            <span class="text-[10px] text-gray-400 font-mono block">OLHADINHA</span>
+            <strong id="outCamera" class="text-2xl font-bold font-['Orbitron'] text-white">158</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="text-center text-xs font-mono text-gray-500 py-8 border-t border-white/10">
+      FREE FIRE AIM LAB & HYPER-SENSITIVITY ENGINE // CREATIVE DEV ELITE EDITION
+    </footer>
+  </div>
+
+  <!-- Main Pure JS Engine Script -->
+  <script>
+    // State
+    const state = {
+      theme: 'mid',
+      sound: true,
+      fps: 120,
+      touchSampling: 240,
+      dpi: 411,
+      btnSize: 50,
+      btnY: 22,
+      pointerSpeed: 5,
+      stretched: false,
+      stock3: true,
+      strafe: false,
+      telemetry: {
+        speed: 0,
+        accel: 0,
+        pattern: 'Linear',
+        dwell: 0,
+        headCount: 0,
+        chestCount: 0,
+        overCount: 0
+      }
+    };
+
+    // Web Audio Synthesizer
+    let audioCtx = null;
+    function playShotSound(isHead) {
+      if (!state.sound) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const now = audioCtx.currentTime;
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(isHead ? 160 : 120, now);
+        osc.frequency.exponentialRampToValueAtTime(35, now + 0.06);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.075);
+
+        if (isHead) {
+          const bell = audioCtx.createOscillator();
+          const bellGain = audioCtx.createGain();
+          bell.type = 'triangle';
+          bell.frequency.setValueAtTime(1800, now);
+          bell.frequency.exponentialRampToValueAtTime(800, now + 0.12);
+          bellGain.gain.setValueAtTime(0.2, now);
+          bellGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+          bell.connect(bellGain).connect(audioCtx.destination);
+          bell.start(now);
+          bell.stop(now + 0.14);
+        }
+      } catch (e) {}
+    }
+
+    // Background Canvas: Sparks & 3D Horizon Grid
+    const bgCanvas = document.getElementById('bgCanvas');
+    const bgCtx = bgCanvas.getContext('2d');
+    let sparks = [];
+
+    function resizeBg() {
+      bgCanvas.width = window.innerWidth;
+      bgCanvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeBg);
+    resizeBg();
+
+    for (let i = 0; i < 40; i++) {
+      sparks.push({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        vy: -(Math.random() * 1.5 + 0.5),
+        size: Math.random() * 2.5 + 1,
+        life: Math.random() * 200
+      });
+    }
+
+    let gridOffset = 0;
+    function renderBg() {
+      bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+      const w = bgCanvas.width;
+      const h = bgCanvas.height;
+
+      // Horizon grid
+      const horizonY = h * 0.65;
+      gridOffset = (gridOffset + (state.theme === 'high' ? 1.4 : state.theme === 'low' ? 0.3 : 0.7)) % 30;
+
+      bgCtx.strokeStyle = state.theme === 'high' ? 'rgba(255,30,50,0.08)' : state.theme === 'low' ? 'rgba(0,240,255,0.08)' : 'rgba(255,204,0,0.08)';
+      bgCtx.lineWidth = 1;
+
+      for (let i = -15; i <= 15; i++) {
+        bgCtx.beginPath();
+        bgCtx.moveTo(w / 2, horizonY);
+        bgCtx.lineTo(w / 2 + i * (w / 12), h);
+        bgCtx.stroke();
+      }
+
+      // Rising sparks
+      sparks.forEach(s => {
+        s.y += s.vy * (state.theme === 'high' ? 1.8 : state.theme === 'low' ? 0.6 : 1.1);
+        s.life++;
+        if (s.y < 0 || s.life > 200) {
+          s.y = h + 10;
+          s.x = Math.random() * w;
+          s.life = 0;
+        }
+        bgCtx.fillStyle = state.theme === 'high' ? 'rgba(255,40,50,0.7)' : state.theme === 'low' ? 'rgba(0,240,255,0.7)' : 'rgba(255,204,0,0.7)';
+        bgCtx.beginPath();
+        bgCtx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        bgCtx.fill();
+      });
+
+      requestAnimationFrame(renderBg);
+    }
+    renderBg();
+
+    // Arena Simulation
+    const arenaCanvas = document.getElementById('arenaCanvas');
+    const arenaCtx = arenaCanvas.getContext('2d');
+    const arenaContainer = document.getElementById('arenaContainer');
+
+    function resizeArena() {
+      arenaCanvas.width = arenaContainer.clientWidth;
+      arenaCanvas.height = arenaContainer.clientHeight;
+    }
+    window.addEventListener('resize', resizeArena);
+    setTimeout(resizeArena, 50);
+
+    const dummy = { x: 0.5, y: 0.44, vx: 0.002, dir: 1 };
+    const reticle = { x: 300, y: 220 };
+    let isShooting = false;
+    let dragOrigin = null;
+    let pathPts = [];
+    let bloom = 0;
+    let damages = [];
+    let tracers = [];
+    let lastShot = 0;
+
+    function renderArena(now) {
+      const w = arenaCanvas.width || 600;
+      const h = arenaCanvas.height || 450;
+      arenaCtx.clearRect(0, 0, w, h);
+
+      // Arena Grid
+      arenaCtx.strokeStyle = 'rgba(143,222,230,0.06)';
+      for (let x = 0; x < w; x += 40) {
+        arenaCtx.beginPath(); arenaCtx.moveTo(x, 0); arenaCtx.lineTo(x, h); arenaCtx.stroke();
+      }
+      for (let y = 0; y < h; y += 40) {
+        arenaCtx.beginPath(); arenaCtx.moveTo(0, y); arenaCtx.lineTo(w, y); arenaCtx.stroke();
+      }
+
+      // Strafe
+      if (state.strafe) {
+        dummy.x += dummy.vx * dummy.dir;
+        if (dummy.x > 0.72) dummy.dir = -1;
+        if (dummy.x < 0.28) dummy.dir = 1;
+      }
+
+      const tx = dummy.x * w;
+      const ty = dummy.y * h;
+
+      // Draw Dummy Body
+      arenaCtx.fillStyle = 'rgba(16,22,30,0.9)';
+      arenaCtx.strokeStyle = state.theme === 'high' ? 'rgba(255,40,50,0.8)' : state.theme === 'low' ? 'rgba(0,240,255,0.8)' : 'rgba(255,204,0,0.8)';
+      arenaCtx.lineWidth = 1.6;
+
+      // Head (Cabeça)
+      arenaCtx.beginPath();
+      arenaCtx.arc(tx, ty - 84, 22, 0, Math.PI * 2);
+      arenaCtx.fill();
+      arenaCtx.stroke();
+
+      // Chest (Peito - Magnet)
+      arenaCtx.beginPath();
+      arenaCtx.roundRect(tx - 34, ty - 54, 68, 74, 6);
+      arenaCtx.fill();
+      arenaCtx.stroke();
+
+      // Legs
+      arenaCtx.beginPath();
+      arenaCtx.roundRect(tx - 28, ty + 24, 24, 60, 4);
+      arenaCtx.roundRect(tx + 4, ty + 24, 24, 60, 4);
+      arenaCtx.fill();
+      arenaCtx.stroke();
+
+      // Magnet Logic
+      const distChest = Math.hypot(reticle.x - tx, reticle.y - (ty - 18));
+      const nearChest = distChest < 85;
+      const isLocked = isShooting && nearChest && state.telemetry.accel < 1.35;
+
+      if (isLocked) {
+        reticle.x += (tx - reticle.x) * 0.22;
+        reticle.y += (ty - 18 - reticle.y) * 0.22;
+        document.getElementById('magnetStatusBadge').textContent = 'AIM ASSIST // IMÃ NO PEITO';
+        document.getElementById('magnetStatusBadge').className = 'px-2 py-0.5 border border-amber-400 bg-amber-950/60 text-amber-400';
+      } else {
+        document.getElementById('magnetStatusBadge').textContent = 'MIRA // LIVRE';
+        document.getElementById('magnetStatusBadge').className = 'px-2 py-0.5 border border-white/10 bg-black/50 text-cyan-400';
+      }
+
+      // Shooting & Bloom (98ms UMP cycle)
+      if (isShooting && now - lastShot >= 98) {
+        lastShot = now;
+        const maxBloom = state.stock3 ? 12 : 26;
+        bloom = Math.min(maxBloom, bloom + (state.stock3 ? 1.3 : 2.6));
+
+        const angle = Math.random() * Math.PI * 2;
+        const bDist = Math.random() * bloom;
+        const ix = reticle.x + Math.cos(angle) * bDist;
+        const iy = reticle.y + Math.sin(angle) * bDist;
+
+        // Hit Tests
+        const headDist = Math.hypot(ix - tx, iy - (ty - 84));
+        const isHead = headDist <= 22;
+        const isChest = !isHead && Math.abs(ix - tx) <= 34 && Math.abs(iy - (ty - 18)) <= 37;
+
+        playShotSound(isHead);
+
+        tracers.push({ x1: w * 0.85, y1: h * 0.95, x2: ix, y2: iy, head: isHead, born: now });
+
+        if (isHead) {
+          state.telemetry.headCount++;
+          damages.push({ x: ix, y: iy, val: 137 + Math.floor(Math.random() * 8), head: true, born: now });
+          addHeatDot(ix - tx, iy - ty, 'head');
+        } else if (isChest) {
+          state.telemetry.chestCount++;
+          damages.push({ x: ix, y: iy, val: 24 + Math.floor(Math.random() * 3), head: false, born: now });
+          addHeatDot(ix - tx, iy - ty, 'chest');
+        } else if (iy < ty - 105) {
+          state.telemetry.overCount++;
+          addHeatDot(ix - tx, iy - ty, 'over');
+        }
+        updateTelemetryUI();
+      }
+
+      // Decay bloom
+      if (!isShooting && bloom > 0) bloom = Math.max(0, bloom - 0.5);
+
+      // Tracers
+      tracers = tracers.filter(t => now - t.born < 110);
+      tracers.forEach(t => {
+        arenaCtx.strokeStyle = t.head ? '#ff2244' : '#ffcc00';
+        arenaCtx.lineWidth = t.head ? 2.5 : 1.5;
+        arenaCtx.beginPath();
+        arenaCtx.moveTo(t.x1, t.y1);
+        arenaCtx.lineTo(t.x2, t.y2);
+        arenaCtx.stroke();
+      });
+
+      // Damages
+      damages = damages.filter(d => now - d.born < 650);
+      damages.forEach(d => {
+        const age = (now - d.born) / 650;
+        arenaCtx.font = d.head ? '900 28px Orbitron' : '700 18px Orbitron';
+        arenaCtx.textAlign = 'center';
+        arenaCtx.fillStyle = d.head ? `rgba(255,34,68,${1-age})` : `rgba(255,204,0,${1-age})`;
+        arenaCtx.fillText(String(d.val), d.x, d.y - age * 35);
+      });
+
+      // Reticle
+      arenaCtx.strokeStyle = isLocked ? '#ffcc00' : '#00f0ff';
+      arenaCtx.lineWidth = 1.6;
+      arenaCtx.beginPath();
+      arenaCtx.arc(reticle.x, reticle.y, 14 + bloom, 0, Math.PI * 2);
+      arenaCtx.stroke();
+
+      requestAnimationFrame(renderArena);
+    }
+    requestAnimationFrame(renderArena);
+
+    // Heatmap Dots
+    function addHeatDot(rx, ry, type) {
+      const g = document.getElementById('heatmapDots');
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', rx);
+      dot.setAttribute('cy', ry);
+      dot.setAttribute('r', type === 'head' ? '4' : '3');
+      dot.setAttribute('fill', type === 'head' ? '#ff2244' : type === 'chest' ? '#ffcc00' : '#ffffff');
+      g.appendChild(dot);
+      if (g.children.length > 25) g.removeChild(g.firstChild);
+    }
+
+    function updateTelemetryUI() {
+      const t = state.telemetry;
+      const total = t.headCount + t.chestCount + t.overCount;
+      const hsRate = total > 0 ? Math.round((t.headCount / total) * 100) : 0;
+      document.getElementById('countHead').textContent = t.headCount;
+      document.getElementById('countChest').textContent = t.chestCount;
+      document.getElementById('countOver').textContent = t.overCount;
+      document.getElementById('rateHs').textContent = `${hsRate}%`;
+
+      if (t.overCount > t.headCount && t.overCount > 2) {
+        document.getElementById('scenarioTitle').textContent = 'OVERSHOOT (PASSOU DO CAPA)';
+        document.getElementById('scenarioTitle').className = 'text-base font-bold font-[\'Orbitron\'] text-white mb-2';
+        document.getElementById('scenarioDesc').textContent = 'Puxada brusca demais! Aumente o tamanho do botão para ter mais controle e reduza a sensibilidade Geral.';
+      } else if (hsRate > 50) {
+        document.getElementById('scenarioTitle').textContent = 'CAPA CRAVADO!';
+        document.getElementById('scenarioTitle').className = 'text-base font-bold font-[\'Orbitron\'] text-red-400 mb-2';
+        document.getElementById('scenarioDesc').textContent = 'Aceleração cirúrgica! Rompeu o imã do peito e manteve o controle na cabeça com dano vermelho limpo.';
+      } else if (t.chestCount > 3) {
+        document.getElementById('scenarioTitle').textContent = 'PRESO NO PEITO';
+        document.getElementById('scenarioTitle').className = 'text-base font-bold font-[\'Orbitron\'] text-amber-400 mb-2';
+        document.getElementById('scenarioDesc').textContent = 'Aceleração linear insuficiente. Faça uma arrancada mais rápida (flick) no início do arrasto.';
+      }
+    }
+
+    // Fire Button Dragging Handlers
+    const fireBtn = document.getElementById('fireButton');
+    fireBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fireBtn.setPointerCapture(e.pointerId);
+      isShooting = true;
+      dragOrigin = { x: e.clientX, y: e.clientY };
+      pathPts = [{ x: reticle.x, y: reticle.y, t: performance.now() }];
+      fireBtn.classList.add('is-firing');
+    });
+
+    fireBtn.addEventListener('pointermove', (e) => {
+      if (!isShooting || !dragOrigin) return;
+      const dx = e.clientX - dragOrigin.x;
+      const dy = e.clientY - dragOrigin.y;
+
+      const stretchX = state.stretched ? 1.28 : 1.0;
+      const stretchY = state.stretched ? 0.92 : 1.0;
+
+      reticle.x = Math.max(20, Math.min(arenaCanvas.width - 20, reticle.x + dx * stretchX * 0.18));
+      reticle.y = Math.max(20, Math.min(arenaCanvas.height - 20, reticle.y + dy * stretchY * 0.18));
+
+      dragOrigin = { x: e.clientX, y: e.clientY };
+      pathPts.push({ x: reticle.x, y: reticle.y, t: performance.now() });
+
+      // Compute speed & acceleration
+      if (pathPts.length > 2) {
+        const p1 = pathPts[0];
+        const p2 = pathPts[pathPts.length - 1];
+        const dt = Math.max(1, p2.t - p1.t);
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        state.telemetry.speed = +(dist / dt).toFixed(2);
+        state.telemetry.accel = +(dist / Math.min(80, dt)).toFixed(2);
+        document.getElementById('teleSpeed').textContent = state.telemetry.speed;
+        document.getElementById('teleAccel').textContent = state.telemetry.accel;
+      }
+    });
+
+    const stopShooting = () => {
+      if (!isShooting) return;
+      isShooting = false;
+      dragOrigin = null;
+      fireBtn.classList.remove('is-firing');
+    };
+    fireBtn.addEventListener('pointerup', stopShooting);
+    fireBtn.addEventListener('pointercancel', stopShooting);
+
+    // Clicking elsewhere shows native alert
+    arenaContainer.addEventListener('pointerdown', (e) => {
+      if (isShooting) return;
+      const alert = document.getElementById('aimAlert');
+      alert.classList.remove('hidden');
+      setTimeout(() => alert.classList.add('hidden'), 2200);
+    });
+
+    // Sensitivity Calculation Engine
+    function calculateSensi() {
+      const prefMult = state.theme === 'high' ? 1.15 : state.theme === 'low' ? 0.86 : 1.0;
+      const dpiFactor = Math.pow(411 / state.dpi, 0.55);
+      const stretchX = state.stretched ? 1.28 : 1.0;
+      const stretchY = state.stretched ? 1.12 : 1.0;
+      const fpsFactor = 1 + (60 - state.fps) * 0.0012;
+      const fireFactor = 1 + (50 - state.btnSize) * 0.006;
+
+      const base = 172 * prefMult * dpiFactor * fpsFactor * fireFactor;
+
+      const geral = Math.min(200, Math.round(base * stretchX));
+      const redDot = Math.min(200, Math.round(base * 0.98 * stretchY));
+      const x2 = Math.min(200, Math.round(base * 0.91));
+      const x4 = Math.min(200, Math.round(base * 0.83));
+      const awm = Math.min(200, Math.round(base * 0.43));
+      const cam = Math.min(200, Math.round(base * 0.88 * stretchX));
+
+      document.getElementById('heroGeralDisplay').textContent = geral;
+      document.getElementById('heroXDisplay').textContent = (dpiFactor * stretchX).toFixed(2);
+      document.getElementById('heroYDisplay').textContent = (dpiFactor * stretchY).toFixed(2);
+
+      document.getElementById('outGeral').textContent = geral;
+      document.getElementById('outRedDot').textContent = redDot;
+      document.getElementById('out2x').textContent = x2;
+      document.getElementById('out4x').textContent = x4;
+      document.getElementById('outAwm').textContent = awm;
+      document.getElementById('outCamera').textContent = cam;
+    }
+
+    // UI Listeners
+    document.getElementById('soundToggle').addEventListener('click', () => {
+      state.sound = !state.sound;
+      document.getElementById('soundToggle').textContent = state.sound ? '🔊 SOM ATIVO' : '🔇 MUDO';
+    });
+
+    document.getElementById('stockToggle').addEventListener('click', () => {
+      state.stock3 = !state.stock3;
+      document.getElementById('stockToggle').textContent = state.stock3 ? '🛡️ CORONHA NVL 3 (ATIVA)' : '⚪ SEM CORONHA';
+      document.getElementById('stockToggle').classList.toggle('text-amber-400', state.stock3);
+    });
+
+    document.getElementById('strafeToggle').addEventListener('click', () => {
+      state.strafe = !state.strafe;
+      document.getElementById('strafeToggle').textContent = state.strafe ? '↔️ STRAFE (ATIVO)' : '↔️ ALVO EM STRAFE (OFF)';
+      document.getElementById('strafeToggle').classList.toggle('text-amber-400', state.strafe);
+    });
+
+    document.getElementById('stretchToggle').addEventListener('click', () => {
+      state.stretched = !state.stretched;
+      document.getElementById('stretchToggle').textContent = state.stretched ? 'ATIVADA (+28% X)' : 'DESATIVADA (1:1)';
+      document.getElementById('stretchToggle').classList.toggle('border-amber-400', state.stretched);
+      calculateSensi();
+    });
+
+    document.getElementById('modeSniper').addEventListener('click', () => setMode('low'));
+    document.getElementById('modeHybrid').addEventListener('click', () => setMode('mid'));
+    document.getElementById('modeRush').addEventListener('click', () => setMode('high'));
+
+    function setMode(m) {
+      state.theme = m;
+      document.body.className = `theme-${m} relative min-h-screen`;
+      document.getElementById('modeSniper').className = m === 'low' ? 'px-4 py-2 rounded bg-cyan-400 text-black font-bold transition' : 'px-4 py-2 rounded transition hover:text-cyan-400';
+      document.getElementById('modeHybrid').className = m === 'mid' ? 'px-4 py-2 rounded bg-amber-400 text-black font-bold transition' : 'px-4 py-2 rounded transition hover:text-amber-400';
+      document.getElementById('modeRush').className = m === 'high' ? 'px-4 py-2 rounded bg-red-500 text-white font-bold transition' : 'px-4 py-2 rounded transition hover:text-red-400';
+      calculateSensi();
+    }
+
+    document.getElementById('fpsSelect').addEventListener('change', (e) => {
+      state.fps = +e.target.value;
+      calculateSensi();
+    });
+
+    document.getElementById('touchSelect').addEventListener('change', (e) => {
+      state.touchSampling = +e.target.value;
+      calculateSensi();
+    });
+
+    document.getElementById('dpiInput').addEventListener('input', (e) => {
+      state.dpi = Math.max(120, +e.target.value || 120);
+      calculateSensi();
+    });
+
+    document.getElementById('btnSizeSlider').addEventListener('input', (e) => {
+      state.btnSize = +e.target.value;
+      document.getElementById('btnSizeVal').textContent = `${state.btnSize}%`;
+      document.getElementById('btnSizeReadout').textContent = state.btnSize;
+      const px = Math.max(50, Math.min(100, state.btnSize * 1.1));
+      fireBtn.style.width = `${px}px`;
+      fireBtn.style.height = `${px}px`;
+      calculateSensi();
+    });
+
+    document.getElementById('btnYSlider').addEventListener('input', (e) => {
+      state.btnY = +e.target.value;
+      document.getElementById('btnYVal').textContent = `${state.btnY}%`;
+      document.getElementById('btnYReadout').textContent = state.btnY;
+      document.getElementById('fireBtnContainer').style.bottom = `${state.btnY}%`;
+      calculateSensi();
+    });
+
+    document.getElementById('pointerSlider').addEventListener('input', (e) => {
+      state.pointerSpeed = +e.target.value;
+      document.getElementById('pointerVal').textContent = `${state.pointerSpeed}/10`;
+      calculateSensi();
+    });
+
+    document.getElementById('resetRangeBtn').addEventListener('click', () => {
+      state.telemetry = { speed: 0, accel: 0, pattern: 'Linear', dwell: 0, headCount: 0, chestCount: 0, overCount: 0 };
+      document.getElementById('heatmapDots').innerHTML = '';
+      updateTelemetryUI();
+    });
+
+    // Initial calculation
+    calculateSensi();
+  </script>
+</body>
+</html>
