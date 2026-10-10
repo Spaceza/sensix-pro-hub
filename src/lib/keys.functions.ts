@@ -75,7 +75,8 @@ export const saveProfile = createServerFn({ method: "POST" })
     if ((count ?? 0) >= 50) throw new Error("Limite de 50 perfis");
     const payload = JSON.stringify(data.data);
     if (payload.length > 10000) throw new Error("Perfil muito grande");
-    await db.from("saved_profiles").insert({ key_id: row.id, name: data.name, data: data.data });
+    const { error } = await db.from("saved_profiles").insert({ key_id: row.id, name: data.name, data: data.data });
+    if (error) throw new Error("Não foi possível salvar a calibração");
     return { ok: true };
   });
 
