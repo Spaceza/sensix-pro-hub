@@ -12,4 +12,5 @@
 ## SensiX Pro architecture
 - Keep the calibration and key-admin experience at `/`; calibration tools share one live configuration, while access and saved profiles use Lovable Cloud through server functions.
 - Use semantic CSS tokens and shared HUD utility classes in `src/styles.css`; this keeps the cyber interface consistent and theme-safe.
-- Keep the playable training range as a Canvas 2D React module; screen-space hitboxes and pointer telemetry do not justify a heavier 3D runtime.
+- Keep the playable training range as a lazy-loaded, client-only React Three Fiber module; the requested third-person camera and raycast hitboxes require 3D, while vector input and camera physics stay in refs/useFrame.
+- Keep trial telemetry and recalibration in browser-safe pure modules; this enables deterministic testing and shares one configuration between the range, hardware controls, and saved profiles.
