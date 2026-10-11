@@ -30,6 +30,7 @@ export function CyberGridCanvas({ preference }: CyberGridCanvasProps) {
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let animId = 0;
     let width = 0;
     let height = 0;
@@ -56,7 +57,7 @@ export function CyberGridCanvas({ preference }: CyberGridCanvasProps) {
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
 
     // Initialize initial sparks
-    const SPARK_COUNT = preference === "high" ? 65 : preference === "low" ? 30 : 45;
+    const SPARK_COUNT = reduced ? 0 : preference === "high" ? 65 : preference === "low" ? 30 : 45;
     sparksRef.current = Array.from({ length: SPARK_COUNT }, () => createSpark(width, height, true));
 
     function createSpark(w: number, h: number, randomizeY = false): Spark {
@@ -86,8 +87,8 @@ export function CyberGridCanvas({ preference }: CyberGridCanvasProps) {
 
       // Smooth pointer parallax interpolation
       const ptr = pointerRef.current;
-      ptr.x += (ptr.targetX - ptr.x) * 0.05;
-      ptr.y += (ptr.targetY - ptr.y) * 0.05;
+      ptr.x += (ptr.targetX - ptr.x) * (1 - Math.exp(-3 * dt));
+      ptr.y += (ptr.targetY - ptr.y) * (1 - Math.exp(-3 * dt));
 
       ctx.clearRect(0, 0, width, height);
 
@@ -147,9 +148,10 @@ export function CyberGridCanvas({ preference }: CyberGridCanvasProps) {
       const sparks = sparksRef.current;
       for (let i = 0; i < sparks.length; i++) {
         const s = sparks[i];
+        if (!s) continue;
         s.life += dt * 60;
-        s.y += s.vy;
-        s.x += s.vx + Math.sin(now * 0.003 + s.seed) * 0.6;
+        s.y += s.vy * dt * 60;
+        s.x += (s.vx + Math.sin(now * 0.003 + s.seed) * 0.6) * dt * 60;
 
         // Subtle repulsion from cursor
         const dx = s.x - ptr.x * width;
@@ -179,7 +181,7 @@ export function CyberGridCanvas({ preference }: CyberGridCanvasProps) {
         ctx.restore();
       }
 
-      animId = requestAnimationFrame(render);
+      if (!reduced) animId = requestAnimationFrame(render);
     };
 
     animId = requestAnimationFrame(render);

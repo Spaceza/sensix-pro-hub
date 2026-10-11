@@ -267,7 +267,7 @@ function Dashboard({
       dragFactor: training?.factor ?? 1,
       fireButton: training?.fireButton ?? input.fireButton,
       fireButtonY: training?.fireButtonY ?? input.fireButtonY,
-      biomechanicFeedback: feedback,
+      ...(feedback ? { biomechanicFeedback: feedback } : {}),
     });
     return gameSensi === null ? calculated : { ...calculated, geral: gameSensi };
   }, [input, training, gameSensi]);
