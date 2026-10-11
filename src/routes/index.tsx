@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { ClientOnly, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart3,
@@ -28,7 +28,11 @@ import {
   Tv,
 } from "lucide-react";
 import { AdminPanel } from "@/components/sensix/AdminPanel";
-import { AimLab, type TrainingResult } from "@/components/sensix/AimLab";
+import { recalibrate, type FeedbackIssue, type TrainingResult } from '@/lib/aim-physics';
+import { useKineticInterface } from '@/components/sensix/useKineticInterface';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+const PullSimulator = lazy(() => import('@/components/sensix/PullSimulator'));
 import { CyberGridCanvas } from "@/components/sensix/CyberGridCanvas";
 import { KeyGate } from "@/components/sensix/KeyGate";
 import { checkSession, deleteProfile, listProfiles, saveProfile } from "@/lib/keys.functions";
@@ -54,7 +58,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Plataforma biomecânica de sensibilidade para Free Fire. Simulador balístico UMP-45 com aim assist nativo, aceleração não-linear e calibrador de hardware.",
+          "Plataforma biomecânica de sensibilidade para Free Fire. Simulador balístico UMP-45 3D com câmera sobre o ombro, telemetria de puxada e calibrador de hardware.",
       },
       { property: "og:title", content: "Free Fire Aim Lab & Hyper-Sensitivity Engine" },
       {
@@ -87,7 +91,7 @@ const initial: EngineInput = {
   fireButtonY: 22,
   pull: "linear",
   inputLag: 2,
-  touchDelay: 80,
+  touchDelay: 0,
   fps: 60,
   touchSampling: 240,
   pointerSpeed: 5,
@@ -190,16 +194,16 @@ function Header({ session, logout }: { session: Session; logout: () => void }) {
         <span className="status-dot" />
         <div>
           <b>ENGINE ONLINE</b>
-          <small>UMP-45 NATIVE BALLISTICS // READY</small>
+          <small>UMP-45 TRAINING BALLISTICS // READY</small>
         </div>
       </div>
       <div className="header-actions">
         <span className="access-time">
           {session.role === "admin" ? "ADMIN" : timeLeft(session.expiresAt)}
         </span>
-        <button className="icon-action" onClick={logout} aria-label="Sair">
+        <Button className="icon-action" onClick={logout} aria-label="Sair">
           <LogOut />
-        </button>
+        </Button>
       </div>
     </header>
   );
@@ -220,6 +224,11 @@ function Dashboard({
   const [sound, setSound] = useState(true);
   const [input, setInput] = useState<EngineInput>(initial);
   const [training, setTraining] = useState<TrainingResult | null>(null);
+  const [gameSensi, setGameSensi] = useState<number | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [issues, setIssues] = useState<FeedbackIssue[]>([]);
+  const [savingCalibration, setSavingCalibration] = useState(false);
+  const [calibrationError, setCalibrationError] = useState('');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileName, setProfileName] = useState("Build UMP Pro Athlete");
   const [toast, setToast] = useState("");
@@ -233,6 +242,7 @@ function Dashboard({
   const [mlDiagnostic, setMlDiagnostic] = useState<string>("");
 
   const pageRef = useRef<HTMLElement>(null);
+  useKineticInterface(pageRef);
 
   // Sync preference with background canvas
   useEffect(() => {
@@ -252,69 +262,43 @@ function Dashboard({
         }
       : undefined;
 
-    return compute({
+    const calculated = compute({
       ...input,
       dragFactor: training?.factor ?? 1,
       fireButton: training?.fireButton ?? input.fireButton,
       fireButtonY: training?.fireButtonY ?? input.fireButtonY,
-      biomechanicFeedback: feedback,
+      ...(feedback ? { biomechanicFeedback: feedback } : {}),
     });
-  }, [input, training]);
+    return gameSensi === null ? calculated : { ...calculated, geral: gameSensi };
+  }, [input, training, gameSensi]);
 
   const dpiRec = idealDpi(cpu, input.resW);
   const resolutionRec = idealResolution(cpu, input.fps);
 
-  const handleRecalibrateML = () => {
-    const explanation: string[] = [];
-
-    // Jitter: reduce DPI, decrease pointer speed, increase sensi
-    if (feedbackCapa === "jitter") {
-      setInput((prev) => ({
-        ...prev,
-        dpi: Math.max(320, prev.dpi - 40),
-        pointerSpeed: Math.max(1, prev.pointerSpeed - 1),
-      }));
-      explanation.push(
-        "Jitter detectado: DPI reduzida em -40 e velocidade do ponteiro diminuída para eliminar pixel skipping."
-      );
-    }
-
-    // Chest lock: increase button (+5%), lower Y (-4%), increase DPI (+25)
-    if (feedbackCapa === "chest") {
-      setInput((prev) => ({
-        ...prev,
-        fireButton: Math.min(65, prev.fireButton + 5),
-        fireButtonY: Math.max(10, prev.fireButtonY - 4),
-        dpi: Math.min(1400, prev.dpi + 25),
-      }));
-      explanation.push(
-        "Travou no peito: Botão ampliado em +5% (alavanca), altura Y rebaixada em -4% e DPI aumentada (+25) para romper o ímã G=10."
-      );
-    }
-
-    // Overshoot: lower sensitivity
-    if (feedbackCapa === "over" || feedbackGeral === "fast") {
-      explanation.push(
-        "Overshoot: Redução sugerida na Sensibilidade Geral e Red Dot para frear a mira cravada na cabeça."
-      );
-    }
-
-    // Miss button: increase button size
-    if (feedbackButton === "miss") {
-      setInput((prev) => ({
-        ...prev,
-        fireButton: Math.min(65, prev.fireButton + 6),
-      }));
-      explanation.push("Ergonomia: Botão de tiro aumentado em +6% para expandir a área de toque.");
-    }
-
-    setMlDiagnostic(
-      explanation.length > 0
-        ? explanation.join(" • ")
-        : "Build perfeitamente equilibrada! Nenhuma alteração drástica necessária."
-    );
-    note("Recalibragem evolutiva aplicada!");
+  const receiveTrial = (result: TrainingResult | null) => {
+    setTraining(result);
+    if (!result) return;
+    setIssues([]); setCalibrationError(''); setFeedbackOpen(true);
   };
+  const applyCalibration = async () => {
+    if (savingCalibration) return;
+    setSavingCalibration(true); setCalibrationError('');
+    const next = recalibrate(input, gameSensi ?? output.geral, issues);
+    const adjusted = compute(next.input);
+    const name = `Treino 3D · ${new Date().toLocaleString('pt-BR')}`;
+    try {
+      await saveFn({ data: { token: session.token, name, data: {
+        ...next.input, geral: next.sensitivity, redDot: adjusted.redDot, acog: adjusted.acog,
+        x4: adjusted.x4, awm: adjusted.awm, camera: adjusted.camera,
+        scenario: training?.scenario ?? '', hsRate: training?.hsRate ?? 0, feedback: issues.join(','),
+      } } });
+      setInput(next.input); setGameSensi(next.sensitivity); setTraining(null);
+      setMlDiagnostic(`${next.input.dpi} DPI · Ponteiro ${next.input.pointerSpeed}/10 · Geral ${next.sensitivity} · Botão ${next.input.fireButton}%`);
+      await loadProfiles(); setFeedbackOpen(false); note('Calibração aplicada e salva na nuvem');
+    } catch { setCalibrationError('Não foi possível salvar. Sua configuração anterior foi mantida. Tente novamente.'); }
+    finally { setSavingCalibration(false); }
+  };
+  const handleRecalibrateML = () => { setIssues([]); setCalibrationError(''); setFeedbackOpen(true); };
 
   const set = <K extends keyof EngineInput>(key: K, value: EngineInput[K]) =>
     setInput((current) => ({ ...current, [key]: value }));
@@ -409,24 +393,25 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
   const applyProfile = (p: Profile) => {
     setInput({
       ...initial,
-      mode: (String(p.data.mode ?? "br") as Mode) || "br",
-      preference: (String(p.data.preference ?? "mid") as Preference) || "mid",
-      brandId: String(p.data.brandId ?? "samsung"),
-      dpi: Number(p.data.dpi ?? 411),
-      resW: Number(p.data.resW ?? 1080),
-      resH: Number(p.data.resH ?? 2400),
-      fireButton: Number(p.data.fireButton ?? 50),
-      fireButtonY: Number(p.data.fireButtonY ?? 22),
-      pull: (String(p.data.pull ?? "linear") as PullStyle) || "linear",
-      inputLag: Number(p.data.inputLag ?? 2),
-      touchDelay: Number(p.data.touchDelay ?? 80),
-      fps: (Number(p.data.fps ?? 60) as EngineInput["fps"]) || 60,
-      touchSampling: (Number(p.data.touchSampling ?? 240) as TouchSampling) || 240,
-      pointerSpeed: Number(p.data.pointerSpeed ?? 5),
-      stretchedScreen: Boolean(p.data.stretchedScreen ?? false),
-      stockLvl3: Boolean(p.data.stockLvl3 ?? true),
-      dragFactor: Number(p.data.dragFactor ?? 1),
+      mode: (String(p.data["mode"] ?? "br") as Mode) || "br",
+      preference: (String(p.data["preference"] ?? "mid") as Preference) || "mid",
+      brandId: String(p.data["brandId"] ?? "samsung"),
+      dpi: Number(p.data["dpi"] ?? 411),
+      resW: Number(p.data["resW"] ?? 1080),
+      resH: Number(p.data["resH"] ?? 2400),
+      fireButton: Number(p.data["fireButton"] ?? 50),
+      fireButtonY: Number(p.data["fireButtonY"] ?? 22),
+      pull: (String(p.data["pull"] ?? "linear") as PullStyle) || "linear",
+      inputLag: Number(p.data["inputLag"] ?? 2),
+      touchDelay: Number(p.data["touchDelay"] ?? 80),
+      fps: (Number(p.data["fps"] ?? 60) as EngineInput["fps"]) || 60,
+      touchSampling: (Number(p.data["touchSampling"] ?? 240) as TouchSampling) || 240,
+      pointerSpeed: Number(p.data["pointerSpeed"] ?? 5),
+      stretchedScreen: Boolean(p.data["stretchedScreen"] ?? false),
+      stockLvl3: Boolean(p.data["stockLvl3"] ?? true),
+      dragFactor: Number(p.data["dragFactor"] ?? 1),
     });
+    setGameSensi(Number(p.data["geral"] ?? 170));
     setTraining(null);
     note("Build aplicada ao simulador e à engine");
   };
@@ -485,24 +470,21 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
       data-motion={input.preference}
     >
       {/* 1. Hero Section & Cyber Tactical Telemetry */}
-      <section className="aim-hero reveal">
+      <section className="aim-hero">
         <div className="hero-copy">
           <p className="eyebrow">
             <span /> FREE FIRE BIOMECHANICAL AIM LAB // 04.7
           </p>
-          <h1>
-            CALIBRE A PUXADA <em>DO PRIMEIRO TIRO.</em>
-          </h1>
+          <h1 className="kinetic-title">FREE FIRE <em>AIM LAB.</em></h1>
           <p>
-            Simulador de mecânicas nativas da Garena: botão de tiro exclusivo, aceleração não-linear,
-            gravidade magnética de peito e cálculo balístico UMP-45 com tela esticada.
+            HYPER-SENSITIVITY ENGINE / TRAINING DIVISION
           </p>
 
           {/* Floating Weapon Card with Sine Floating Animation */}
           <div className="floating-weapon-card">
             <Flame size={26} />
             <div>
-              <strong>UMP-45 CYBER TACTICAL // LOADOUT ATIVO</strong>
+              <strong>UMP / TRAINING LOADOUT</strong>
               <span>
                 Ciclo: 98ms · Dano Base: 25 · Crítico Cabeça: 137+ · Coronha Nvl 3 (-48% Dispersão)
               </span>
@@ -510,18 +492,18 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           </div>
 
           <div className="hero-actions">
-            <button
+            <Button
               className="ui-button"
               onClick={() => document.getElementById("lab")?.scrollIntoView()}
             >
               <Target size={16} /> ENTRAR NA ARENA NATIVA
-            </button>
-            <button
+            </Button>
+            <Button
               className="ui-button ui-button-outline"
               onClick={() => document.getElementById("engine")?.scrollIntoView()}
             >
               <SlidersHorizontal size={16} /> MATRIZ DE HARDWARE
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -556,79 +538,67 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
 
       {/* Navigation Bar */}
       <nav className="command-nav">
-        <button onClick={() => document.getElementById("lab")?.scrollIntoView()}>
+        <Button onClick={() => document.getElementById("lab")?.scrollIntoView()}>
           <b>01</b>
           <span>ARENA NATIVA</span>
-        </button>
-        <button onClick={() => document.getElementById("engine")?.scrollIntoView()}>
+        </Button>
+        <Button onClick={() => document.getElementById("engine")?.scrollIntoView()}>
           <b>02</b>
           <span>HYPER ENGINE</span>
-        </button>
-        <button onClick={() => document.getElementById("analysis")?.scrollIntoView()}>
+        </Button>
+        <Button onClick={() => document.getElementById("analysis")?.scrollIntoView()}>
           <b>03</b>
           <span>CALIBRAÇÃO</span>
-        </button>
-        <button onClick={() => document.getElementById("mlSection")?.scrollIntoView()}>
+        </Button>
+        <Button onClick={() => document.getElementById("mlSection")?.scrollIntoView()}>
           <b>04</b>
-          <span>RECALIBRAGEM ML</span>
-        </button>
-        <button onClick={() => document.getElementById("profiles")?.scrollIntoView()}>
+          <span>RECALIBRAGEM</span>
+        </Button>
+        <Button onClick={() => document.getElementById("profiles")?.scrollIntoView()}>
           <b>05</b>
           <span>BUILDS</span>
-        </button>
+        </Button>
         <div className="nav-tools">
-          <a
-            href="/standalone-aimlab.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ui-button ui-button-outline"
-            style={{ padding: "0.35rem 0.65rem", fontSize: "0.75rem", textDecoration: "none" }}
-            title="Abrir versão standalone de arquivo único"
-          >
-            ⚡ STANDALONE 3D
-          </a>
-          <button
+          <Button
             onClick={() => setLang(lang === "pt" ? "en" : "pt")}
             aria-label="Idioma"
             title="Alterar Idioma"
           >
             <Languages />
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => setSound(!sound)}
             aria-label="Som"
             title={sound ? "Silenciar áudio" : "Ativar áudio balístico"}
           >
             {sound ? <Volume2 /> : <VolumeX />}
-          </button>
+          </Button>
         </div>
       </nav>
 
       {/* 2. Playable Range // Free Fire Authentic Aim Lab */}
-      <section id="lab" className="panel lab-panel reactive-panel reveal">
+      <section id="lab" className="lab-panel spatial-band">
         <SectionTitle
           icon={<Target />}
-          kicker="PLAYABLE RANGE // GARENA ENGINE"
-          title="SIMULADOR DE PUXADA DE CAPA REAL"
-          text="A mira é travada no botão de atirar. Pressione e arraste a partir dele com aceleração explosiva para vencer a força magnética do peito e cravar na cabeça."
+          kicker="01 / THIRD-PERSON TRAINING RANGE"
+          title="SUA MIRA. NO ESPAÇO 3D."
+          
         />
-        <AimLab
-          sound={sound}
-          baseFire={output.fireButton}
-          baseFireY={output.fireButtonY}
-          preference={input.preference}
-          stretchedScreen={input.stretchedScreen}
-          fps={input.fps}
-          touchSampling={input.touchSampling}
-          sensiGeral={output.geral}
-          dpi={input.dpi}
-          pointerSpeed={input.pointerSpeed}
-          onResult={setTraining}
-        />
+        <ClientOnly fallback={<div className="range-loading"><Activity /> PREPARANDO TREINO 3D</div>}>
+          <Suspense fallback={<div className="range-loading"><Activity /> CARREGANDO ARENA 3D</div>}>
+            <PullSimulator sound={sound} preference={input.preference} onResult={receiveTrial} configuration={{
+              dpi: input.dpi, sensitivity: gameSensi ?? output.geral, fps: input.fps, sampling: input.touchSampling,
+              pointer: input.pointerSpeed, fire: input.fireButton, fireY: input.fireButtonY,
+              resW: input.resW, resH: input.resH, brandTouch: BRANDS.find(b => b.id === input.brandId)?.touch ?? 1,
+              stretched: input.stretchedScreen, lag: input.touchDelay + input.inputLag * 2,
+              stock: input.stockLvl3, strafe: false,
+            }} />
+          </Suspense>
+        </ClientOnly>
       </section>
 
       {/* 3. The Sensitivity Ecosystem & Hardware Matrix */}
-      <section id="engine" className="panel reactive-panel reveal">
+      <section id="engine" className="panel spatial-band">
         <SectionTitle
           icon={<MonitorCog />}
           kicker="HARDWARE MATRIX & BALÍSTICA"
@@ -638,27 +608,27 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
 
         {/* Dynamic Sensitivity Presets */}
         <div className="preference-switch">
-          <button
+          <Button
             className={input.preference === "low" ? "active" : ""}
             onClick={() => set("preference", "low")}
           >
             <i />
             BAIXA <small>CIRÚRGICA / SNIPER</small>
-          </button>
-          <button
+          </Button>
+          <Button
             className={input.preference === "mid" ? "active" : ""}
             onClick={() => set("preference", "mid")}
           >
             <i />
             MÉDIA <small>VERSÁTIL / BOOYAH</small>
-          </button>
-          <button
+          </Button>
+          <Button
             className={input.preference === "high" ? "active" : ""}
             onClick={() => set("preference", "high")}
           >
             <i />
             ALTA <small>BRUTAL / RUSH</small>
-          </button>
+          </Button>
         </div>
 
         {/* Stretched Screen Feature Toggle Bar */}
@@ -672,7 +642,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
               matematicamente mais pesado e aumentando a compensação na Red Dot e Geral.
             </small>
           </div>
-          <button
+          <Button
             type="button"
             className={`toggle-chip ${input.stretchedScreen ? "chip-active" : ""}`}
             onClick={() => set("stretchedScreen", !input.stretchedScreen)}
@@ -680,7 +650,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
             <span className="stretched-badge">
               {input.stretchedScreen ? "ATIVADO (+28% X)" : "DESATIVADO (1:1)"}
             </span>
-          </button>
+          </Button>
         </div>
 
         {/* Hardware Control Matrix Form */}
@@ -742,6 +712,9 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
             />
           </Field>
 
+          <Range label="SENSIBILIDADE DO JOGO / GERAL" value={gameSensi ?? output.geral} min={0} max={200} unit="/200" onChange={v => { setGameSensi(v); setTraining(null); }} />
+          <Field label="LARGURA PERSONALIZADA"><input className="sx-input" type="number" min={320} max={7680} value={input.resW} onChange={e => set('resW', Math.max(320, Math.min(7680, +e.target.value || 320)))} /></Field>
+          <Field label="ALTURA PERSONALIZADA"><input className="sx-input" type="number" min={320} max={7680} value={input.resH} onChange={e => set('resH', Math.max(320, Math.min(7680, +e.target.value || 320)))} /></Field>
           <Field label="TAXA DE TOQUE (TOUCH SAMPLING)">
             <select
               value={input.touchSampling}
@@ -772,7 +745,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
 
           <Range
             label="TAMANHO DO BOTÃO DE ATIRAR (10% - 65%)"
-            value={training?.fireButton ?? input.fireButton}
+            value={input.fireButton}
             min={10}
             max={65}
             unit="%"
@@ -784,7 +757,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
 
           <Range
             label="ALTURA Y DO BOTÃO NO HUD"
-            value={training?.fireButtonY ?? input.fireButtonY}
+            value={input.fireButtonY}
             min={10}
             max={65}
             unit="%"
@@ -825,19 +798,19 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
       </section>
 
       {/* 4. Real-Time Sensitivity Output & Biomechanical Feedback */}
-      <section id="analysis" className="result-panel reactive-panel reveal">
+      <section id="analysis" className="result-panel spatial-band">
         <div className="result-head">
           <div>
             <p>OUTPUT // BALÍSTICA SINCRONIZADA</p>
             <h2>CONFIGURAÇÃO FINAL DE COMBATE</h2>
           </div>
           <div className="result-actions">
-            <button className="ui-button ui-button-outline" onClick={copyConfig}>
+            <Button className="ui-button ui-button-outline" onClick={copyConfig}>
               <Copy size={15} /> COPIAR TUDO
-            </button>
-            <button className="ui-button" onClick={saveBuild}>
+            </Button>
+            <Button className="ui-button" onClick={saveBuild}>
               <Save size={15} /> SALVAR BUILD
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -919,10 +892,10 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
       </section>
 
       {/* 5. Evolutionary Feedback & Local ML Recalibration */}
-      <section id="mlSection" className="panel reactive-panel reveal">
+      <section id="mlSection" className="panel spatial-band">
         <SectionTitle
           icon={<Zap />}
-          kicker="MACHINE LEARNING LOCAL // ALGORITMO EVOLUTIVO"
+          kicker="ADAPTIVE RULES // RECALIBRAÇÃO"
           title="FEEDBACK PÓS-TREINO & AUTO-AJUSTE"
           text="Cruze os sintomas reais da sua puxada para reescrever dinamicamente o tamanho do botão, DPI e sensibilidade."
         />
@@ -931,7 +904,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           <Field label="1. SENSIBILIDADE GERAL">
             <select
               value={feedbackGeral}
-              onChange={(e) => setFeedbackGeral(e.target.value as any)}
+              onChange={(e) => setFeedbackGeral(e.target.value as typeof feedbackGeral)}
             >
               <option value="perfect">Perfeita / Equilibrada</option>
               <option value="fast">Alta demais (Passando da cabeça)</option>
@@ -942,7 +915,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           <Field label="2. COMPORTAMENTO DO CAPA">
             <select
               value={feedbackCapa}
-              onChange={(e) => setFeedbackCapa(e.target.value as any)}
+              onChange={(e) => setFeedbackCapa(e.target.value as typeof feedbackCapa)}
             >
               <option value="chest">Travou no peito (Não rompe G=10)</option>
               <option value="over">Passou da cabeça (Overshoot)</option>
@@ -954,7 +927,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           <Field label="3. ERGONOMIA DO BOTÃO">
             <select
               value={feedbackButton}
-              onChange={(e) => setFeedbackButton(e.target.value as any)}
+              onChange={(e) => setFeedbackButton(e.target.value as typeof feedbackButton)}
             >
               <option value="hit">Acertei perfeitamente o botão</option>
               <option value="miss">Errei o botão / Deslize acidental</option>
@@ -964,7 +937,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
           <Field label="4. MIRAS ESPECÍFICAS">
             <select
               value={feedbackScope}
-              onChange={(e) => setFeedbackScope(e.target.value as any)}
+              onChange={(e) => setFeedbackScope(e.target.value as typeof feedbackScope)}
             >
               <option value="ok">Todas calibradas</option>
               <option value="reddot">Red Dot precisa de ajuste</option>
@@ -974,9 +947,9 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "1rem", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "1rem" }}>
-          <button className="ui-button" type="button" onClick={handleRecalibrateML}>
-            <Zap size={15} /> EXECUTAR RECALIBRAGEM ML
-          </button>
+          <Button className="ui-button" type="button" onClick={handleRecalibrateML}>
+            <Zap size={15} /> EXECUTAR RECALIBRAGEM
+          </Button>
           {mlDiagnostic && (
             <div style={{ fontSize: "0.85rem", color: "var(--theme-primary, #ffcc00)", maxWidth: "48rem", fontFamily: "var(--font-mono, monospace)" }}>
               {mlDiagnostic}
@@ -986,7 +959,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
       </section>
 
       {/* 6. Cloud Loadouts / Saved Athlete Builds */}
-      <section id="profiles" className="panel reactive-panel reveal">
+      <section id="profiles" className="panel spatial-band">
         <SectionTitle
           icon={<BarChart3 />}
           kicker="CLOUD PROFILES // LIVE STORAGE"
@@ -1002,12 +975,12 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
             aria-label="Nome da build"
             placeholder="Nome da build de atleta..."
           />
-          <button className="ui-button" onClick={saveBuild}>
+          <Button className="ui-button" onClick={saveBuild}>
             <Save size={15} /> SALVAR
-          </button>
-          <button className="ui-button ui-button-outline" onClick={exportSvgCard}>
+          </Button>
+          <Button className="ui-button ui-button-outline" onClick={exportSvgCard}>
             <Download size={15} /> EXPORTAR CARD
-          </button>
+          </Button>
         </div>
 
         <div className="profile-grid">
@@ -1022,18 +995,18 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
                 <h3>{p.name}</h3>
                 <div className="profile-numbers">
                   <span>
-                    GERAL <b>{p.data.geral ?? "—"}</b>
+                    GERAL <b>{p.data["geral"] ?? "—"}</b>
                   </span>
                   <span>
-                    RED DOT <b>{p.data.redDot ?? "—"}</b>
+                    RED DOT <b>{p.data["redDot"] ?? "—"}</b>
                   </span>
                   <span>
-                    BOTÃO <b>{p.data.fireButton ?? "—"}%</b>
+                    BOTÃO <b>{p.data["fireButton"] ?? "—"}%</b>
                   </span>
                 </div>
                 <div className="profile-actions">
-                  <button onClick={() => applyProfile(p)}>APLICAR BUILD</button>
-                  <button
+                  <Button onClick={() => applyProfile(p)}>APLICAR BUILD</Button>
+                  <Button
                     aria-label="Excluir build"
                     onClick={async () => {
                       await deleteFn({ data: { token: session.token, id: p.id } });
@@ -1041,7 +1014,7 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
                     }}
                   >
                     <Trash2 size={15} />
-                  </button>
+                  </Button>
                 </div>
               </article>
             ))
@@ -1091,6 +1064,21 @@ Tela Esticada: ${input.stretchedScreen ? "Sim (+28% X)" : "Não"}`;
         <ShieldCheck />
       </footer>
 
+      <Dialog open={feedbackOpen} onOpenChange={open => { if (!savingCalibration) setFeedbackOpen(open); }}>
+        <DialogContent className={`aim-page theme-${input.preference} calibration-terminal`}>
+          <small>POST-TRIAL / ADAPTIVE CALIBRATION</small>
+          <DialogTitle>COMO FOI A PUXADA?</DialogTitle>
+          <DialogDescription>Selecione o que sentiu no treino.</DialogDescription>
+          <div className="feedback-choices">
+            {([['jitter', 'A mira tremeu'], ['chest', 'Travou no peito'], ['over', 'Passou da cabeça'], ['perfect', 'Puxada perfeita']] as const).map(([value, label]) => (
+              <label key={value}><input type="checkbox" checked={issues.includes(value)} onChange={() => setIssues(current => current.includes(value) ? current.filter(v => v !== value) : value === 'perfect' ? ['perfect'] : [...current.filter(v => v !== 'perfect'), value])} />{label}</label>
+            ))}
+          </div>
+          {training && <p className="calibration-summary">{training.headshots} capas · {training.bodyshots} peito · {training.stability}% estabilidade</p>}
+          {calibrationError && <p role="alert" className="text-destructive">{calibrationError}</p>}
+          <Button variant="hud" disabled={issues.length === 0 || savingCalibration} onClick={() => void applyCalibration()}><Zap />{savingCalibration ? 'SALVANDO CALIBRAÇÃO…' : 'RECALIBRAR E CONTINUAR'}</Button>
+        </DialogContent>
+      </Dialog>
       {toast && (
         <div className="toast">
           <Check size={16} />

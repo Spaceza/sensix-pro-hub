@@ -1,102 +1,129 @@
-import { useRef, useState } from "react";
-import { RotateCcw, Target } from "lucide-react";
+import { useEffect, useRef, useState } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { Crosshair, RotateCcw, Shield, MoveHorizontal, Maximize, Minimize, Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { analyzeTrial, type AimConfig, type TrainingResult } from '@/lib/aim-physics';
+import { freshRuntime, type RangePalette, type RangeSnapshot } from './range-types';
+import { RangeScene } from './RangeScene';
 
-type Pt = { x: number; y: number; t: number };
-export type SimResult = { factor: number; fire: number | null; message: string; speed: number; jitter: number; reach: number; grade: "ok" | "fast" | "slow" | "jitter" };
+export interface PullSimulatorProps {
+  configuration: AimConfig;
+  sound: boolean;
+  preference: string;
+  onResult: (result: TrainingResult | null) => void;
+}
+const emptySnapshot: RangeSnapshot = { shots: 0, head: 0, body: 0, lock: false, bloom: 0, speed: 0, damage: 0 };
 
-export function PullSimulator({ baseFire, onResult, buzz }: { baseFire: number; onResult: (r: SimResult | null) => void; buzz: (k?: "tap" | "generate") => void }) {
-  const box = useRef<HTMLDivElement>(null);
-  const pts = useRef<Pt[]>([]);
-  const [path, setPath] = useState<Pt[]>([]);
-  const [aim, setAim] = useState<{ x: number; y: number } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [res, setRes] = useState<SimResult | null>(null);
-
-  const local = (e: React.PointerEvent) => {
-    const el = box.current;
-    if (!el) return { x: 50, y: 88 };
-    const r = el.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 };
+export default function PullSimulator({ configuration, sound, preference, onResult }: PullSimulatorProps) {
+  const root = useRef<HTMLDivElement>(null), runtime = useRef(freshRuntime()), config = useRef(configuration);
+  const audio = useRef<AudioContext | null>(null), soundRef = useRef(sound);
+  const [snapshot, setSnapshot] = useState(emptySnapshot);
+  const [result, setResult] = useState<TrainingResult | null>(null);
+  const [stock, setStock] = useState(configuration.stock), [strafe, setStrafe] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [palette, setPalette] = useState<RangePalette | null>(null);
+  useEffect(() => { config.current = { ...configuration, stock, strafe }; soundRef.current = sound; }, [configuration, stock, strafe, sound]);
+  useEffect(() => { setStock(configuration.stock); }, [configuration.stock]);
+  useEffect(() => {
+    const el = root.current; if (!el) return;
+    const css = getComputedStyle(el);
+    const token = (name: string) => css.getPropertyValue(`--range-${name}`).trim();
+    setPalette({ floor: token('floor'), wall: token('wall'), ceiling: token('ceiling'), metal: token('metal'),
+      accent: token('accent'), critical: token('critical'), light: token('light'), ink: token('ink') });
+  }, [preference]);
+  useEffect(() => {
+    const stop = () => { runtime.current.held = false; runtime.current.queue = []; runtime.current.pointerId = null; };
+    const visibility = () => { if (document.hidden) stop(); };
+    const changed = () => setFullscreen(document.fullscreenElement === root.current);
+    window.addEventListener('blur', stop); document.addEventListener('visibilitychange', visibility); document.addEventListener('fullscreenchange', changed);
+    return () => { stop(); window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility); document.removeEventListener('fullscreenchange', changed); void audio.current?.close(); };
+  }, []);
+  const shot = (head: boolean) => {
+    const ctx = audio.current; if (!ctx || !soundRef.current) return;
+    const t = ctx.currentTime, osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(head ? 900 : 150, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.075);
+    gain.gain.setValueAtTime(0.07, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    osc.connect(gain).connect(ctx.destination); osc.start(t); osc.stop(t + 0.09);
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   };
-
-  const down = (e: React.PointerEvent) => {
+  const start = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (runtime.current.held || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId);
+    const previousReset = runtime.current.reset;
+    runtime.current = freshRuntime(); runtime.current.reset = previousReset + 1;
+    runtime.current.held = true; runtime.current.pointerId = e.pointerId;
+    const sample = { x: e.clientX, y: e.clientY, t: performance.now() };
+    runtime.current.origin = sample; runtime.current.trial.samples.push(sample);
+    setResult(null); setSnapshot(emptySnapshot);
+    if (sound && !audio.current && window.AudioContext) audio.current = new AudioContext();
+    if (audio.current?.state === 'suspended') void audio.current.resume();
+  };
+  const move = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const r = runtime.current, prev = r.origin;
+    if (!r.held || !prev || r.pointerId !== e.pointerId) return;
     e.preventDefault();
-    (e.target as Element).setPointerCapture(e.pointerId);
-    const p = local(e);
-    pts.current = [{ ...p, t: performance.now() }];
-    setPath([]); setRes(null); setDragging(true); setAim({ x: 50, y: 88 }); buzz();
+    const sample = { x: e.clientX, y: e.clientY, t: performance.now() };
+    const dx = sample.x - prev.x, dy = sample.y - prev.y;
+    r.queue.push({ dx, dy, speed: Math.hypot(dx, dy) / Math.max(1, sample.t - prev.t), at: sample.t });
+    if (r.queue.length > 256) r.queue.shift();
+    r.trial.samples.push(sample); if (r.trial.samples.length > 2000) r.trial.samples.splice(1, 1);
+    r.origin = sample;
   };
-
-  const move = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    const p = local(e);
-    const start = pts.current[0];
-    if (!start) return;
-    const n = pts.current.length;
-    // recoil: random sideways kick grows with time; resistance damps vertical travel
-    const kick = (Math.random() - 0.5) * Math.min(3, n * 0.05);
-    const dy = (start.y - p.y) * 0.88;
-    const x = 50 + (p.x - start.x) + kick;
-    const y = 88 - dy;
-    pts.current.push({ x, y, t: performance.now() });
-    setAim({ x, y });
-    if (n % 2 === 0) setPath([...pts.current.slice(1)]);
+  const end = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const r = runtime.current; if (!r.held || r.pointerId !== e.pointerId) return;
+    r.held = false; r.pointerId = null; r.queue = [];
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    if (e.type === 'pointercancel') return;
+    const metrics = analyzeTrial(r.trial, config.current);
+    setResult(metrics); onResult(metrics);
   };
-
-  const up = () => {
-    if (!dragging) return;
-    setDragging(false);
-    const p = pts.current.slice(1);
-    if (p.length < 4) { setAim(null); return; }
-    const el = box.current;
-    if (!el) return;
-    const box_ = el.getBoundingClientRect();
-    const first = p[0], last = p[p.length - 1];
-    if (!first || !last) return;
-    const minY = Math.min(...p.map((q) => q.y));
-    const dt = Math.max(1, last.t - first.t);
-    const distPx = ((first.y - minY) / 100) * box_.height;
-    const speed = +(distPx / dt).toFixed(2);
-    const meanX = p.reduce((a, q) => a + q.x, 0) / p.length;
-    const jitter = +Math.sqrt(p.reduce((a, q) => a + (q.x - meanX) ** 2, 0) / p.length).toFixed(1);
-    const reach = Math.round(88 - minY);
-    let r: SimResult;
-    if (minY < 10 || speed > 2.2) r = { grade: "fast", factor: 0.88, fire: Math.min(80, baseFire + 8), speed, jitter, reach, message: `⚠️ Puxada agressiva/rápida demais! Sensibilidade reduzida em 12%. Use um botão de tiro maior (ex.: ${Math.min(80, baseFire + 8)}%) para ganhar estabilidade.` };
-    else if (minY > 26 || speed < 0.35) r = { grade: "slow", factor: 1.08, fire: Math.max(30, baseFire - 8), speed, jitter, reach, message: `⚠️ Força de puxada baixa! Red Dot aumentada. Reduza o botão de tiro (ex.: ${Math.max(30, baseFire - 8)}%) para um deslocamento mais rápido.` };
-    else if (jitter > 7) r = { grade: "jitter", factor: 0.96, fire: null, speed, jitter, reach, message: "⚠️ Arraste vertical instável. Ative a estabilização de toque e use velocidade do ponteiro 7/10." };
-    else r = { grade: "ok", factor: 1, fire: null, speed, jitter, reach, message: "✅ Capa! Puxada limpa na altura da cabeça. Sua configuração atual está calibrada." };
-    setRes(r); onResult(r); buzz("generate");
+  const reset = () => {
+    const version = runtime.current.reset + 1;
+    runtime.current = freshRuntime(); runtime.current.reset = version;
+    setSnapshot(emptySnapshot); setResult(null); onResult(null);
   };
-
-  const reset = () => { setRes(null); setPath([]); setAim(null); onResult(null); buzz(); };
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-      <div ref={box} className="sim-screen" style={{ touchAction: "none" }} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-        <div className="field-grid" />
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full" aria-hidden="true">
-          {/* dummy */}
-          <rect x="44" y="22" width="12" height="26" rx="3" className="sim-dummy" />
-          <rect x="45" y="48" width="4" height="18" className="sim-dummy" /><rect x="51" y="48" width="4" height="18" className="sim-dummy" />
-          <ellipse cx="50" cy="16" rx="4.5" ry="5" className="sim-head" />
-          <line x1="0" y1="16" x2="100" y2="16" className="sim-headline" />
-          {path.length > 1 && <polyline points={path.map((q) => `${q.x},${q.y}`).join(" ")} className="sim-path" />}
-        </svg>
-        {aim && <span className="sim-reticle" style={{ left: `${aim.x}%`, top: `${aim.y}%` }} />}
-        <button type="button" className={`sim-fire ${dragging ? "is-held" : ""}`} onPointerDown={down} aria-label="Segure e arraste para cima">
-          <Target size={26} />
-        </button>
-        <p className="sim-hint">{dragging ? "PUXANDO…" : "SEGURE O BOTÃO E ARRASTE ATÉ A CABEÇA"}</p>
+  return <div ref={root} className={`range-experience ${fullscreen ? 'is-fullscreen' : ''}`} data-lenis-prevent>
+    <div className="range-viewport">
+      {palette ? <Canvas shadows dpr={[1, 1.5]} camera={{ position: [0.65, 1.65, 3.7], fov: 52, near: 0.1, far: 55 }} gl={{ antialias: true }}>
+        <RangeScene runtime={runtime} config={config} palette={palette} onSnapshot={setSnapshot} onShot={shot} />
+      </Canvas> : <div className="range-loading"><Activity /> CARREGANDO ARENA</div>}
+      <div className="range-topline"><span><i /> RANGE 01 <b>// LIVE</b></span><span>UMP · TREINO 3D</span></div>
+      <div className="range-side-label">BIOMECHANICAL / THIRD PERSON</div>
+      <div className={`range-crosshair ${snapshot.lock ? 'is-locked' : ''}`} style={{ '--bloom': `${snapshot.bloom * 1600}px` } as React.CSSProperties}><i /><b /><span /></div>
+      {snapshot.damage > 0 && <strong className={`range-damage ${snapshot.damage > 100 ? 'critical' : ''}`}>{snapshot.damage}</strong>}
+      <div className="range-lock-readout">{snapshot.lock ? 'TORso // MAGNETISMO'.toUpperCase() : 'MIRA LIVRE'}<small>{configuration.fps} FPS · {configuration.dpi} DPI · {configuration.sensitivity} GERAL</small></div>
+      <div className="range-fire-position" style={{ bottom: `${Math.min(65, configuration.fireY)}%` }}>
+        <Button variant="fire" aria-label="Pressione e arraste para puxar o capa" style={{ width: `${48 + configuration.fire * 0.7}px`, height: `${48 + configuration.fire * 0.7}px` }}
+          onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={e => { if (runtime.current.held) end(e); }}>
+          <Crosshair /><span>FIRE</span>
+        </Button><small>{configuration.fire}% / Y {configuration.fireY}%</small>
       </div>
-      <aside className="grid content-start gap-3">
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {[["VEL.", res ? `${res.speed}` : "--", "px/ms"], ["TREMOR", res ? `${res.jitter}` : "--", "desvio"], ["ALCANCE", res ? `${res.reach}%` : "--", "altura"]].map(([a, b, c]) => (
-            <div key={a} className="sx-cell"><small>{a}</small><strong>{b}</strong><span>{c}</span></div>
-          ))}
-        </div>
-        <p className={`sx-diag ${res ? `is-${res.grade}` : ""}`}>{res ? res.message : "Faça uma puxada para receber o diagnóstico. O resultado ajusta automaticamente sua sensibilidade e botão."}</p>
-        <button className="ui-button ui-button-outline" onClick={reset}><RotateCcw size={16} /> RECALIBRAR</button>
-      </aside>
+      <div className="range-controls">
+        <Button variant="outline" size="icon" aria-label="Coronha nível 3" title="Coronha nível 3" aria-pressed={stock} onClick={() => setStock(!stock)}><Shield /></Button>
+        <Button variant="outline" size="icon" aria-label="Alvo em movimento" title="Alvo em movimento" aria-pressed={strafe} onClick={() => setStrafe(!strafe)}><MoveHorizontal /></Button>
+        <Button variant="outline" size="icon" aria-label="Reiniciar treino" title="Reiniciar treino" onClick={reset}><RotateCcw /></Button>
+        <Button variant="outline" size="icon" aria-label="Tela cheia" title="Tela cheia" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void root.current?.requestFullscreen?.(); }}>{fullscreen ? <Minimize /> : <Maximize />}</Button>
+      </div>
+      <div className="range-ammo"><strong>{snapshot.shots.toString().padStart(2, '0')}</strong><span>DISPAROS <b>98 MS / CYCLE</b></span></div>
     </div>
-  );
+    <aside className="range-telemetry">
+      <header><small>SESSION / TELEMETRY</small><h3>LEITURA BIOMECÂNICA</h3><i /></header>
+      <div className="range-stat-grid">
+        {[
+          ['VELOCIDADE', result?.speed ?? snapshot.speed.toFixed(2), 'PX/MS'],
+          ['ESTABILIDADE', result?.stability ?? '—', '%'],
+          ['HEAD DWELL', result?.headDwell ?? '—', 'MS'],
+          ['ACELERAÇÃO', result?.accel ?? '—', 'PX/MS²'],
+        ].map(([label, value, unit]) => <div key={label}><small>{label}</small><strong>{value}<sup>{unit}</sup></strong></div>)}
+      </div>
+      <div className="range-hit-analysis">
+        <svg viewBox="0 0 110 170" aria-label="Mapa de calor dos acertos"><circle cx="55" cy="30" r="19" className="heat-body-part" /><path d="M35 54 H75 L85 106 H66 L65 153 H49 L46 106 H26Z" className="heat-body-part" />
+          {runtime.current.hits.map((hit, i) => <circle key={i} cx={55 + hit.x * 45} cy={hit.head ? 30 + (hit.y - 1.67) * -45 : 81 + (hit.y - 0.97) * -45} r="3" className={hit.head ? 'heat-head' : 'heat-chest'} />)}
+        </svg>
+        <div><small>DISTRIBUIÇÃO DE IMPACTO</small><span>CAPA <b>{snapshot.head}</b></span><span>PEITO <b>{snapshot.body}</b></span><span>PRECISÃO <b>{result?.accuracy ?? 0}%</b></span></div>
+      </div>
+      <div className="range-verdict"><small>RESULTADO DA SESSÃO</small><strong>{result?.scenario ?? 'AGUARDANDO PUXADA'}</strong><span>{result?.pullPattern ?? '—'}</span></div>
+      <Button variant="hud" onClick={reset}><RotateCcw /> NOVA PUXADA</Button>
+    </aside>
+  </div>;
 }

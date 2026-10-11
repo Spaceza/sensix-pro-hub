@@ -49,7 +49,7 @@ export interface EngineInput {
   dpi: number;
   resW: number;
   resH: number;
-  fireButton: number; // 10-100 %
+  fireButton: number; // 10-65 %
   fireButtonY: number; // 10-70 % (HUD vertical position from bottom)
   pull: PullStyle;
   inputLag: number; // 0-10 perceived
@@ -85,7 +85,7 @@ export interface EngineOutput {
 const clamp = (v: number, a = 0, b = 200) => Math.min(b, Math.max(a, Math.round(v)));
 
 export function compute(i: EngineInput): EngineOutput {
-  const brand = BRANDS.find((b) => b.id === i.brandId) ?? BRANDS[1];
+  const brand = BRANDS.find((b) => b.id === i.brandId) ?? { id: "default", label: "Dispositivo padrão", touch: 1, tier: "mid", nativeSampling: 240 };
   const dpi = Math.min(1400, Math.max(320, i.dpi || 411));
   const resRatio = Math.max(0.5, Math.min(1.8, (i.resW || 1080) / 1080));
   const aspect = (i.resH || 2400) / (i.resW || 1080);
@@ -237,7 +237,7 @@ export const CPU_TIERS = [
 ];
 
 export function idealDpi(tierId: string, resW: number) {
-  const t = CPU_TIERS.find((c) => c.id === tierId) ?? CPU_TIERS[1];
+  const t = CPU_TIERS.find((c) => c.id === tierId) ?? { id: "default", min: 380, max: 500, hz: "240Hz - 360Hz" };
   if (tierId === "apple") return { text: "iOS nativo (gerenciado por toque e DPI virtual)", hz: t.hz };
   const k = resW / 1080;
   return { text: `${Math.round(t.min * k)} – ${Math.round(t.max * k)} DPI`, hz: t.hz };
