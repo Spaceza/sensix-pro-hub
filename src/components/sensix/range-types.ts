@@ -13,6 +13,6 @@ export interface SceneProps {
   onSnapshot: (value: RangeSnapshot) => void; onShot: (head: boolean) => void;
 }
 export function freshRuntime(): RangeRuntime {
-  return { held: false, pointerId: null, origin: null, queue: [], yaw: 0.0555, pitch: -0.047,
+  return { held: false, pointerId: null, origin: null, queue: [], yaw: 0.051, pitch: -0.065,
     bloom: 0, speed: 0, reset: 0, trial: { samples: [], head: 0, body: 0, miss: 0, overshoot: 0, dwell: 0 }, hits: [] };
 }

@@ -100,7 +100,7 @@ export function RangeScene({ runtime, config, palette: p, onSnapshot, onShot }: 
       targets.current.position.x = c.strafe ? Math.sin(clock.elapsedTime * 0.8) * 0.7 : 0;
       targets.current.updateWorldMatrix(true, true);
     }
-    camera.position.set(0.65, 1.65, 3.7); camera.rotation.order = 'YXZ';
+    camera.position.set(0.65, 1.8, 4.7); camera.rotation.order = 'YXZ';
     camera.rotation.set(r.pitch, r.yaw, 0); camera.updateMatrixWorld();
     tools.ray.setFromCamera(tools.center, camera);
     const aimHit = tools.ray.intersectObjects(tools.hitboxes, false)[0];
@@ -111,7 +111,7 @@ export function RangeScene({ runtime, config, palette: p, onSnapshot, onShot }: 
       r.speed = input.speed;
       const friction = lock && input.speed < 0.7 ? 0.16 : 1;
       r.yaw -= input.dx * gain * (c.stretched ? 1.28 : 1) * friction;
-      r.pitch -= input.dy * gain * (c.stretched ? 0.88 : 1) * friction;
+      r.pitch -= input.dy * gain * (1 + Math.min(0.45, input.speed * 0.2)) * (c.stretched ? 0.88 : 1) * friction;
     }
     if (lock && r.held && r.speed < 0.7 && aimHit) {
       aimHit.object.getWorldPosition(tools.chest);

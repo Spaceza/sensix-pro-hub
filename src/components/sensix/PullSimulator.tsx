@@ -27,7 +27,15 @@ export default function PullSimulator({ configuration, sound, preference, onResu
   useEffect(() => {
     const el = root.current; if (!el) return;
     const css = getComputedStyle(el);
-    const token = (name: string) => css.getPropertyValue(`--range-${name}`).trim();
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    const token = (name: string) => {
+      const value = css.getPropertyValue(`--range-${name}`).trim();
+      if (!ctx) return value;
+      ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = value; ctx.fillRect(0, 0, 1, 1);
+      const data = ctx.getImageData(0, 0, 1, 1).data;
+      return `rgb(${data[0]},${data[1]},${data[2]})`;
+    };
     setPalette({ floor: token('floor'), wall: token('wall'), ceiling: token('ceiling'), metal: token('metal'),
       accent: token('accent'), critical: token('critical'), light: token('light'), ink: token('ink') });
   }, [preference]);
@@ -84,7 +92,7 @@ export default function PullSimulator({ configuration, sound, preference, onResu
   };
   return <div ref={root} className={`range-experience ${fullscreen ? 'is-fullscreen' : ''}`} data-lenis-prevent>
     <div className="range-viewport">
-      {palette ? <Canvas shadows dpr={[1, 1.5]} camera={{ position: [0.65, 1.65, 3.7], fov: 52, near: 0.1, far: 55 }} gl={{ antialias: true }}>
+      {palette ? <Canvas shadows dpr={[1, 1.5]} camera={{ position: [0.65, 1.8, 4.7], fov: 52, near: 0.1, far: 55 }} gl={{ antialias: true }}>
         <RangeScene runtime={runtime} config={config} palette={palette} onSnapshot={setSnapshot} onShot={shot} />
       </Canvas> : <div className="range-loading"><Activity /> CARREGANDO ARENA</div>}
       <div className="range-topline"><span><i /> RANGE 01 <b>// LIVE</b></span><span>UMP · TREINO 3D</span></div>

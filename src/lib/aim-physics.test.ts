@@ -1,3 +1,4 @@
+/// <reference types="bun" />
 import { describe, it, expect } from 'bun:test';
 import { rotationGain, responseDelay, analyzeTrial, recalibrate, type AimConfig } from './aim-physics';
 import type { EngineInput } from './sensi-engine';
