@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
 import type { AimConfig, DragSample, Trial } from '@/lib/aim-physics';
+export const RANGE_CAMERA = { position: [0, 2.4, 5.8] as [number, number, number], fov: 62, near: 0.1, far: 55 };
 export interface RangeRuntime {
   held: boolean; pointerId: number | null; origin: DragSample | null;
   queue: { dx: number; dy: number; speed: number; at: number }[];
@@ -13,6 +14,6 @@ export interface SceneProps {
   onSnapshot: (value: RangeSnapshot) => void; onShot: (head: boolean) => void;
 }
 export function freshRuntime(): RangeRuntime {
-  return { held: false, pointerId: null, origin: null, queue: [], yaw: 0.051, pitch: -0.065,
+    return { held: false, pointerId: null, origin: null, queue: [], yaw: 0, pitch: -0.098,
     bloom: 0, speed: 0, reset: 0, trial: { samples: [], head: 0, body: 0, miss: 0, overshoot: 0, dwell: 0 }, hits: [] };
 }
