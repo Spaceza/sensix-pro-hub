@@ -1,7 +1,6 @@
-/// <reference types="bun" />
 import { describe, it, expect } from 'bun:test';
-import { rotationGain, responseDelay, analyzeTrial, recalibrate, type AimConfig } from './aim-physics';
-import type { EngineInput } from './sensi-engine';
+import { rotationGain, responseDelay, analyzeTrial, recalibrate, type AimConfig } from '../src/lib/aim-physics';
+import type { EngineInput } from '../src/lib/sensi-engine';
 const config: AimConfig = { dpi: 411, sensitivity: 100, fps: 120, sampling: 240, pointer: 5, fire: 50, fireY: 25, resW: 1080, resH: 2400, brandTouch: 1, stretched: false, lag: 0, stock: true, strafe: false };
 const input: EngineInput = { mode: 'br', preference: 'mid', brandId: 'samsung_s', dpi: 411, resW: 1080, resH: 2400, fireButton: 50, fireButtonY: 25, pull: 'linear', inputLag: 0, touchDelay: 0, fps: 120, touchSampling: 240, pointerSpeed: 5, stretchedScreen: false, stockLvl3: true };
 describe('physical hardware coupling', () => {
