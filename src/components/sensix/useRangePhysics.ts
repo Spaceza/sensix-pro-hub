@@ -39,8 +39,8 @@ export const useRangePhysics = ({ runtime, config, onSnapshot, onShot }: ScenePr
       const input = r.queue.shift(); if (!input) break;
       r.speed = input.speed;
       const verticalSpeed = input.speed * Math.abs(input.dy) / Math.max(0.001, Math.hypot(input.dx, input.dy));
-       if (input.dy < 0 && verticalSpeed >= 0.7) tools.breakUntil = now + 180;
-       const friction = torso && now >= tools.breakUntil ? 0.16 : 1;
+      if (input.dy < 0 && verticalSpeed >= 0.7) tools.breakUntil = now + 180;
+      const friction = torso && now >= tools.breakUntil ? 0.16 : 1;
       r.yaw -= input.dx * gain * (c.stretched ? 1.28 : 1) * friction;
       r.pitch -= input.dy * gain * (1 + Math.min(0.45, input.speed * 0.2)) * (c.stretched ? 0.88 : 1) * friction;
     }

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Crosshair, RotateCcw, Shield, MoveHorizontal, Maximize, Minimize, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { analyzeTrial, type AimConfig, type TrainingResult } from '@/lib/aim-physics';
-import { freshRuntime, type RangePalette, type RangeSnapshot } from './range-types';
+import { freshRuntime, RANGE_CAMERA, type RangePalette, type RangeSnapshot } from './range-types';
 import { RangeScene } from './RangeScene';
 
 export interface PullSimulatorProps {
@@ -46,14 +46,14 @@ export default function PullSimulator({ configuration, sound, preference, onResu
     window.addEventListener('blur', stop); document.addEventListener('visibilitychange', visibility); document.addEventListener('fullscreenchange', changed);
     return () => { stop(); window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility); document.removeEventListener('fullscreenchange', changed); void audio.current?.close(); };
   }, []);
-  const shot = (head: boolean) => {
+  const shot = useCallback((head: boolean) => {
     const ctx = audio.current; if (!ctx || !soundRef.current) return;
     const t = ctx.currentTime, osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type = 'sawtooth'; osc.frequency.setValueAtTime(head ? 900 : 150, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.075);
     gain.gain.setValueAtTime(0.07, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
     osc.connect(gain).connect(ctx.destination); osc.start(t); osc.stop(t + 0.09);
     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-  };
+  }, []);
   const start = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (runtime.current.held || e.button !== 0) return;
     e.preventDefault(); e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId);
@@ -92,7 +92,7 @@ export default function PullSimulator({ configuration, sound, preference, onResu
   };
   return <div ref={root} className={`range-experience ${fullscreen ? 'is-fullscreen' : ''}`} data-lenis-prevent>
     <div className="range-viewport">
-      {palette ? <Canvas shadows dpr={[1, 1.5]} camera={{ position: [0.65, 1.8, 4.7], fov: 52, near: 0.1, far: 55 }} gl={{ antialias: true }}>
+      {palette ? <Canvas shadows dpr={[1, 1.5]} camera={RANGE_CAMERA} gl={{ antialias: true }}>
         <RangeScene runtime={runtime} config={config} palette={palette} onSnapshot={setSnapshot} onShot={shot} />
       </Canvas> : <div className="range-loading"><Activity /> CARREGANDO ARENA</div>}
       <div className="range-topline"><span><i /> RANGE 01 <b>// LIVE</b></span><span>UMP · TREINO 3D</span></div>
