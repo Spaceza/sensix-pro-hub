@@ -13,6 +13,7 @@
 - Keep the calibration and key-admin experience at `/`; calibration tools share one live configuration, while access and saved profiles use Lovable Cloud through server functions.
 - Use semantic CSS tokens and shared HUD utility classes in `src/styles.css`; this keeps the cyber interface consistent and theme-safe.
 - Keep the playable training range as a lazy-loaded, client-only React Three Fiber module; the requested third-person camera and raycast hitboxes require 3D, while vector input and camera physics stay in refs/useFrame.
+- Centralize simulation in `useRangePhysics` with one ref-driven frame loop and shared camera configuration; memoize the scene so throttled DOM telemetry never re-renders its geometry.
 - Keep trial telemetry and recalibration in browser-safe pure modules; this enables deterministic testing and shares one configuration between the range, hardware controls, and saved profiles.
 
 - Keep the range palette in semantic CSS tokens and read it on theme changes for Three.js materials; this synchronizes the DOM HUD and 3D lighting without duplicate color constants.

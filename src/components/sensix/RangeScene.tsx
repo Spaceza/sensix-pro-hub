@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import { Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import { useRangePhysics } from './useRangePhysics';
@@ -64,7 +64,7 @@ function Room({ p }: { p: RangePalette }) {
   </>;
 }
 
-export function RangeScene({ runtime, config, palette: p, onSnapshot, onShot }: SceneProps) {
+export const RangeScene = memo(({ runtime, config, palette: p, onSnapshot, onShot }: SceneProps) => {
   const { targets, player, muzzle, geometry } = useRangePhysics({ runtime, config, palette: p, onSnapshot, onShot });
   return <>
     <color attach="background" args={[p.wall]} />
@@ -85,4 +85,4 @@ export function RangeScene({ runtime, config, palette: p, onSnapshot, onShot }: 
     </group>
     <lineSegments geometry={geometry} frustumCulled={false}><lineBasicMaterial color={p.accent} transparent opacity={0.8} /></lineSegments>
   </>;
-}
+});
